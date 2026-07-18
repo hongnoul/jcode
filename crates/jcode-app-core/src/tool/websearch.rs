@@ -61,7 +61,7 @@ impl Tool for WebSearchTool {
                 "intent": super::intent_schema_property(),
                 "query": {
                     "type": "string",
-                    "description": "Search query."
+                    "description": "Search query. Supports engine-native !bangs (e.g. '!gh jcode', '!w rust'): SearXNG resolves them server-side into engine selection, other engines resolve navigational bangs into a destination URL via DuckDuckGo's redirect."
                 },
                 "num_results": {
                     "type": "integer",
@@ -89,6 +89,25 @@ impl Tool for WebSearchTool {
         engines.push(params.engine.unwrap_or(config.websearch.engine));
         engines.extend(config.websearch.fallback_engines.iter().copied());
         engines.dedup();
+
+        // Bang queries (e.g. `!gh jcode`, `!w rust lifetimes`) are resolved by
+        // the engine, not by us. SearXNG handles them natively server-side, so
+        // they pass through unchanged. For other engines, resolve the bang via
+        // DuckDuckGo's server-side redirect and report the destination URL so
+        // the caller can fetch or open it. Unknown bangs fall through to a
+        // normal search. No client-side bang table exists on purpose: the
+        // vocabulary is owned by the engine and never shadowed here.
+        if extract_bang(&params.query).is_some()
+            && engines.first() != Some(&WebSearchEngine::Searxng)
+            && let Ok(Some(destination)) = self.resolve_ddg_bang(&params.query).await
+        {
+            return Ok(ToolOutput::new(format!(
+                "Bang resolved: {} -> {}\n\n\
+                 This is a navigational bang. Use webfetch to read the page or \
+                 the open tool to show it to the user.",
+                params.query, destination
+            )));
+        }
 
         let market = params
             .bing_market
@@ -381,6 +400,68 @@ impl WebSearchTool {
 
         Ok(parse_searxng_results(parsed, num_results))
     }
+
+    /// Resolve a bang query via DuckDuckGo's server-side bang redirect.
+    ///
+    /// DDG answers a bang query with a meta-refresh/JS redirect page pointing
+    /// at `/l/?uddg=<destination>`. Returns `Ok(Some(url))` with the decoded
+    /// destination, or `Ok(None)` when DDG treated the query as a normal
+    /// search (unknown bang), letting the caller fall through to a regular
+    /// search. The ~13k-bang vocabulary lives entirely on DDG's side.
+    async fn resolve_ddg_bang(&self, query: &str) -> Result<Option<String>> {
+        let response = self
+            .client
+            .get("https://duckduckgo.com/")
+            .query(&[("q", query)])
+            .header(
+                reqwest::header::USER_AGENT,
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+                 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            )
+            .header(reqwest::header::ACCEPT, "text/html,application/xhtml+xml")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+
+        let body = response.text().await?;
+        Ok(parse_ddg_bang_redirect(&body))
+    }
+}
+
+/// Extract a leading or trailing bang token (`!gh foo`, `foo !gh`) from a
+/// query. Only used to decide whether to attempt server-side bang resolution;
+/// the bang itself is never interpreted client-side.
+fn extract_bang(query: &str) -> Option<&str> {
+    let is_bang = |word: &str| {
+        word.len() > 1
+            && word.starts_with('!')
+            && word[1..].chars().all(|c| c.is_ascii_alphanumeric())
+    };
+    let mut words = query.split_whitespace();
+    let first = words.next()?;
+    if is_bang(first) {
+        return Some(first);
+    }
+    let last = query.split_whitespace().next_back()?;
+    is_bang(last).then_some(last)
+}
+
+/// Parse the destination URL out of DDG's bang redirect page.
+///
+/// The redirect page contains `url=/l/?uddg=<percent-encoded destination>`
+/// in a meta-refresh tag (and the same path in a JS fallback). A page
+/// without that marker is a normal results page, meaning the bang was not
+/// recognized.
+fn parse_ddg_bang_redirect(body: &str) -> Option<String> {
+    let marker = body.find("/l/?uddg=")?;
+    let after = &body[marker..];
+    let url = decode_ddg_url(after.split(['\'', '"', '<']).next().unwrap_or(after));
+    // decode_ddg_url returns the input unchanged when no uddg param decodes;
+    // only trust real absolute destinations.
+    (url.starts_with("http://") || url.starts_with("https://")).then_some(url)
 }
 
 /// Map a parsed SearXNG JSON response to `SearchResult`s, dropping entries with
@@ -833,5 +914,58 @@ mod tests {
             Some(WebSearchEngine::Searxng)
         );
         assert_eq!(WebSearchEngine::Searxng.as_str(), "searxng");
+    }
+
+    #[test]
+    fn extracts_leading_and_trailing_bangs() {
+        assert_eq!(extract_bang("!gh jcode"), Some("!gh"));
+        assert_eq!(extract_bang("rust lifetimes !w"), Some("!w"));
+        assert_eq!(extract_bang("!wp"), Some("!wp"));
+        assert_eq!(extract_bang("plain query"), None);
+        assert_eq!(extract_bang("not!a bang"), None);
+        assert_eq!(extract_bang("! spaced"), None);
+        assert_eq!(extract_bang("mid !gh word"), None);
+        assert_eq!(extract_bang(""), None);
+    }
+
+    #[test]
+    fn parses_ddg_bang_redirect_page() {
+        let body = "<html><head><meta http-equiv='refresh' content='0; \
+                    url=/l/?uddg=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FSpecial%3ASearch%3Fsearch%3Drust%2520lifetimes%26go%3DGo&rut=abc'></head>\
+                    <body><script>window.location.replace('/l/?uddg=https%3A%2F%2Fen.wikipedia.org');</script></body></html>";
+        assert_eq!(
+            parse_ddg_bang_redirect(body).as_deref(),
+            Some("https://en.wikipedia.org/wiki/Special:Search?search=rust%20lifetimes&go=Go")
+        );
+    }
+
+    #[test]
+    fn normal_results_page_is_not_a_bang_redirect() {
+        let body =
+            r#"<html><body><a class="result__a" href="https://example.com">x</a></body></html>"#;
+        assert_eq!(parse_ddg_bang_redirect(body), None);
+    }
+}
+
+#[cfg(test)]
+mod bang_live_tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "live network test"]
+    async fn live_ddg_bang_resolves_to_destination() {
+        let tool = WebSearchTool::new();
+        let dest = tool
+            .resolve_ddg_bang("!w rust lifetimes")
+            .await
+            .expect("request should succeed")
+            .expect("known bang should resolve");
+        assert!(dest.contains("wikipedia.org"), "got: {dest}");
+
+        let none = tool
+            .resolve_ddg_bang("plain rust lifetimes")
+            .await
+            .expect("request should succeed");
+        assert!(none.is_none(), "non-bang query must not resolve: {none:?}");
     }
 }

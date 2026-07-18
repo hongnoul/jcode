@@ -1704,6 +1704,10 @@ pub(super) fn handle_session_command(app: &mut App, trimmed: &str) -> bool {
         return true;
     }
 
+    if handle_search_command_local(app, trimmed) {
+        return true;
+    }
+
     if trimmed == "/commit-push" || trimmed == "/commit-and-push" {
         handle_commit_push_command_local(app);
         return true;
@@ -2221,6 +2225,43 @@ pub(super) fn remote_release_launch_notice(interrupted: bool) -> String {
     } else {
         "🚀 Starting logical commits + push + remote release...".to_string()
     }
+}
+
+/// `/search <query>`: run a web search as a synthetic user turn. The query is
+/// passed through verbatim, so engine-native !bangs (e.g. `!gh jcode`) work
+/// exactly like a browser address bar; the engine resolves them server-side.
+fn handle_search_command_local(app: &mut App, trimmed: &str) -> bool {
+    if trimmed != "/search" && !trimmed.starts_with("/search ") {
+        return false;
+    }
+
+    let query = trimmed.strip_prefix("/search").unwrap_or_default().trim();
+    if query.is_empty() {
+        app.push_display_message(DisplayMessage::error(
+            "Usage: /search <query> (supports engine !bangs, e.g. /search !gh jcode)".to_string(),
+        ));
+        return true;
+    }
+
+    let prompt = format!(
+        "Search the web using the websearch tool with this exact query, unchanged: {query}\n\
+         If the tool reports a resolved navigational bang destination URL, fetch it with \
+         webfetch and summarize the page (or open it if the user clearly wants the browser). \
+         Otherwise present the top results concisely with links. Do not reinterpret or \
+         rewrite the query."
+    );
+    if app.is_processing {
+        super::commands_improve::interrupt_and_queue_synthetic_message(
+            app,
+            prompt,
+            "Interrupting for /search...",
+            format!("Searching: {query}"),
+        );
+    } else {
+        app.push_display_message(DisplayMessage::system(format!("Searching: {query}")));
+        super::commands_improve::start_synthetic_user_turn(app, prompt);
+    }
+    true
 }
 
 fn handle_commit_command_local(app: &mut App) {
