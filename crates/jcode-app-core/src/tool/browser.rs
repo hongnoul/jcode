@@ -11,6 +11,9 @@ pub struct BrowserTool;
 
 static FIREFOX_PROVIDER: FirefoxBridgeProvider = FirefoxBridgeProvider;
 
+#[path = "browser_hwatu.rs"]
+mod hwatu_backend;
+
 impl BrowserTool {
     pub fn new() -> Self {
         Self
@@ -191,7 +194,7 @@ impl Tool for BrowserTool {
             "browser".into(),
             json!({
                 "type": "string",
-                "enum": ["auto", "firefox", "chrome", "safari", "edge"],
+                "enum": ["auto", "firefox", "hwatu", "chrome", "safari", "edge"],
                 "description": "Browser."
             }),
         );
@@ -340,12 +343,28 @@ fn attach_browser_metadata(
 
 fn resolve_provider(browser: Option<&str>) -> Result<&'static dyn BrowserProvider> {
     let browser = browser.unwrap_or("auto");
+    if hwatu_backend::HWATU_PROVIDER
+        .supported_browsers()
+        .contains(&browser)
+    {
+        return Ok(&hwatu_backend::HWATU_PROVIDER);
+    }
     if FIREFOX_PROVIDER.supported_browsers().contains(&browser) {
+        // `auto`: when the Firefox bridge has never been set up but a
+        // hwatu daemon/binary is present on this machine, prefer hwatu.
+        // A completed Firefox setup keeps priority so existing installs
+        // do not change behavior.
+        if browser == "auto"
+            && !crate::browser::is_setup_complete()
+            && hwatu_backend::hwatu_available()
+        {
+            return Ok(&hwatu_backend::HWATU_PROVIDER);
+        }
         return Ok(&FIREFOX_PROVIDER);
     }
 
     anyhow::bail!(
-        "Browser backend '{}' is not wired into the built-in browser tool yet. Use auto/firefox for now.",
+        "Browser backend '{}' is not wired into the built-in browser tool yet. Use auto, firefox, or hwatu.",
         browser
     )
 }
