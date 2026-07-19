@@ -586,32 +586,75 @@ throw new Error('wait timed out after {timeout} ms');"#,
                 .with_metadata(json!({"result": value})))
         }
         "scroll" => {
+            // Every arm ends with `reportScroll(...)` so the agent
+            // always learns where the page landed (x/y/max_y/
+            // at_bottom) and, for selector scrolls, what matched:
+            // a bare `{scrolled: ...}` forces a screenshot just to
+            // find out whether the scroll hit the right thing.
+            const REPORT: &str = r#"
+const reportScroll = async (matched) => {
+  // One macrotask lets the instant scroll settle; rAF never fires
+  // in unmapped/background windows, where agent scrolls run.
+  await new Promise(r => setTimeout(r, 0));
+  const doc = document.documentElement;
+  const maxY = Math.max(0, doc.scrollHeight - window.innerHeight);
+  return {
+    x: window.scrollX,
+    y: window.scrollY,
+    max_y: maxY,
+    at_bottom: window.scrollY >= maxY - 1,
+    ...(matched === undefined ? {} : { matched }),
+  };
+};"#;
             let js = if let Some(position) = input.position.as_deref() {
                 match position {
-                    "top" => "window.scrollTo({top: 0}); return {scrolled: 'top'};".to_string(),
-                    "bottom" => {
-                        "window.scrollTo({top: document.body.scrollHeight}); return {scrolled: 'bottom'};"
-                            .to_string()
-                    }
+                    "top" => format!(
+                        "{REPORT}\nwindow.scrollTo({{top: 0}});\nreturn reportScroll();"
+                    ),
+                    "bottom" => format!(
+                        "{REPORT}\nwindow.scrollTo({{top: document.documentElement.scrollHeight}});\nreturn reportScroll();"
+                    ),
                     other => anyhow::bail!("unsupported scroll position: {}", other),
                 }
             } else if let Some(selector) = input.selector.as_deref() {
+                // `contains` filters matches by text so an agent can
+                // disambiguate repeated headings ("the h3 that says
+                // Manage Joule Agents") instead of blindly taking the
+                // first match in document order.
                 format!(
-                    r#"const el = document.querySelector({});
-if (!el) throw new Error('no element matches selector');
+                    r#"{REPORT}
+const selector = {selector};
+const contains = {contains};
+let els = [...document.querySelectorAll(selector)];
+const total = els.length;
+if (contains !== null)
+  els = els.filter(e => (e.textContent || '').includes(contains));
+const el = els[0];
+if (!el) {{
+  const filt = contains === null ? '' : ` (${{els.length}} after contains filter)`;
+  throw new Error(`no match: ${{total}} element(s) for selector${{filt}}`);
+}}
 el.scrollIntoView({{ block: 'center' }});
-return {{ scrolled: 'selector' }};"#,
-                    serde_json::to_string(selector)?
+return reportScroll({{
+  matches: els.length,
+  tag: el.tagName.toLowerCase(),
+  text: (el.textContent || '').trim().slice(0, 120),
+}});"#,
+                    selector = serde_json::to_string(selector)?,
+                    contains = input
+                        .contains
+                        .as_deref()
+                        .map_or(Ok("null".to_string()), serde_json::to_string)?,
                 )
             } else if let Some(to) = &input.scroll_to {
                 format!(
-                    "window.scrollTo({{left: {}, top: {}}}); return {{scrolled: 'to'}};",
+                    "{REPORT}\nwindow.scrollTo({{left: {}, top: {}}});\nreturn reportScroll();",
                     to.x.unwrap_or(0.0),
                     to.y.unwrap_or(0.0)
                 )
             } else if input.x.is_some() || input.y.is_some() {
                 format!(
-                    "window.scrollBy({{left: {}, top: {}}}); return {{scrolled: 'by'}};",
+                    "{REPORT}\nwindow.scrollBy({{left: {}, top: {}}});\nreturn reportScroll();",
                     input.x.unwrap_or(0.0),
                     input.y.unwrap_or(0.0)
                 )
