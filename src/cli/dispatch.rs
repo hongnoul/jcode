@@ -871,8 +871,14 @@ async fn run_default_command(args: Args) -> Result<()> {
     // Record where this interactive launch happened so the system-wide launch
     // hotkeys can reopen jcode in the last project directory (Cmd+') and the
     // last jcode repo for self-dev (Cmd+Shift+'). Best-effort; ignored unless a
-    // real TTY and not a fresh-spawn re-entry.
-    if !args.fresh_spawn && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+    // real TTY and not a fresh-spawn re-entry. Reload/update/restart handoffs
+    // (JCODE_RESUMING=1) are also skipped: they re-exec every open client
+    // (including spawned swarm windows) without --fresh-spawn, and letting them
+    // record would stomp the user's last intentionally-launched directory.
+    if !args.fresh_spawn
+        && std::env::var_os("JCODE_RESUMING").is_none()
+        && std::io::IsTerminal::is_terminal(&std::io::stdin())
+    {
         let repo_dir = build::get_repo_dir();
         setup_hints::record_launch_dirs(&cwd, repo_dir.as_deref());
     }
