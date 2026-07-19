@@ -122,8 +122,8 @@ pub fn inline_transcript_aspect_goal_with_font(
     if chat_width == 0 || chat_height == 0 {
         return None;
     }
-    // Mirror inline_fit_geometry: the border bar + padding take 2 cells.
-    let avail_cells = chat_width.saturating_sub(2).max(1);
+    // Mirror inline_fit_geometry: images use the full chat width (no border).
+    let avail_cells = chat_width.max(1);
     let width_px = avail_cells as f32 * cell_w.max(1) as f32;
     let goal_rows = chat_height
         .saturating_sub(INLINE_ASPECT_CHROME_ROWS)
@@ -170,10 +170,10 @@ pub fn transcript_preferred_aspect_ratio(
 }
 
 /// Compute `(rows, cols)` for an image/diagram scaled to fit `chat_width`
-/// cells wide (including the 2-cell left border) and at most `cap_rows` tall,
-/// preserving aspect ratio. This is the single source of placeholder geometry
-/// for the inline-fit pipeline: prepare-time placeholders and the draw-time
-/// scale use the same math so borders and labels hug the rendered pixels.
+/// cells wide (no left border: images use the full chat width) and at most
+/// `cap_rows` tall, preserving aspect ratio. This is the single source of
+/// placeholder geometry for the inline-fit pipeline: prepare-time placeholders
+/// and the draw-time scale use the same math so labels hug the rendered pixels.
 pub fn inline_fit_geometry(width: u32, height: u32, chat_width: u16, cap_rows: u16) -> (u16, u16) {
     if width == 0 || height == 0 {
         return (INLINE_FIT_MIN_ROWS, chat_width.min(2));
@@ -182,9 +182,9 @@ pub fn inline_fit_geometry(width: u32, height: u32, chat_width: u16, cap_rows: u
     let cell_w = cell_w.max(1) as u32;
     let cell_h = cell_h.max(1) as u32;
 
-    // Available width in pixels (border bar + padding take 2 cells, matching
-    // the renderer's BORDER_WIDTH).
-    let avail_cells = chat_width.saturating_sub(2).max(1) as u32;
+    // Available width in pixels: the full chat width (the inline-fit pipeline
+    // draws no left border).
+    let avail_cells = chat_width.max(1) as u32;
     let avail_px = avail_cells * cell_w;
 
     let cap_rows_u32 = (cap_rows as u32).max(INLINE_FIT_MIN_ROWS as u32);
@@ -206,9 +206,7 @@ pub fn inline_fit_geometry(width: u32, height: u32, chat_width: u16, cap_rows: u
         .max(1)
         .div_ceil(cell_h)
         .max(INLINE_FIT_MIN_ROWS as u32) as u16;
-    let cols = (final_w_px.max(1).div_ceil(cell_w) as u16)
-        .saturating_add(2)
-        .min(chat_width);
+    let cols = (final_w_px.max(1).div_ceil(cell_w) as u16).min(chat_width);
     (
         rows.min(cap_rows_u32.min(u16::MAX as u32) as u16)
             .max(INLINE_FIT_MIN_ROWS),

@@ -411,7 +411,7 @@ pub fn debug_image_scroll_benchmark(
     // real app pushes to its prewarm worker); on a warm image it is the cheap
     // placeholder re-address that every steady-state scroll frame pays.
     let draw_visible = |buf: &mut Buffer, id: u64| {
-        let _ = inline_fit_readiness(id, content_width, image_rows, true);
+        let _ = inline_fit_readiness(id, content_width, image_rows, false);
         let _ = render_image_widget_fit_stable(
             id,
             image_area,
@@ -420,7 +420,7 @@ pub fn debug_image_scroll_benchmark(
             image_rows,
             0,
             false,
-            true,
+            false,
         );
     };
 
@@ -467,7 +467,7 @@ pub fn debug_image_scroll_benchmark(
             .iter()
             .chain(ids[last_visible..band_end].iter())
         {
-            let _ = inline_fit_readiness(id, content_width, image_rows, true);
+            let _ = inline_fit_readiness(id, content_width, image_rows, false);
         }
 
         frame_samples.push(start.elapsed().as_secs_f64() * 1000.0);

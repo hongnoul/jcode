@@ -2394,8 +2394,8 @@ pub(crate) fn swarm_expand_target_from_screen(column: u16, row: u16) -> Option<u
 /// placeholder rows), return the image id so the caller can cycle that image's
 /// size. Together with the label-line hit-test this makes the whole picture
 /// clickable.
-/// The hit-region is bounded by the image's rendered width (`region.width`,
-/// which includes the 2-cell left border), shifted right when `centered` mode
+/// The hit-region is bounded by the image's rendered width (`region.width`),
+/// shifted right when `centered` mode
 /// horizontally centers the drawn pixels, so clicks in empty space beside a
 /// narrow image stay inert.
 pub(crate) fn inline_image_body_target_from_screen(
