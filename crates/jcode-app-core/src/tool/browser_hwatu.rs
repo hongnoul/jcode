@@ -256,6 +256,18 @@ impl BrowserProvider for HwatuProvider {
     }
 }
 
+/// hwatu open mode for agent-driven windows. Agents verify pages, so
+/// the default is "background": the window maps and renders (eval and
+/// screenshot work) but never steals the user's focus. An explicit
+/// `focus: true` on the tool call opts into "normal" (present) mode.
+fn open_mode(input: &BrowserInput) -> &'static str {
+    if input.focus.unwrap_or(false) {
+        "normal"
+    } else {
+        "background"
+    }
+}
+
 async fn execute_hwatu_action(action: &str, input: &BrowserInput) -> Result<ToolOutput> {
     // hwatu has no tabs; `window_id` and `tab_id` both address windows.
     let window_id = input.window_id.or(input.tab_id);
@@ -269,8 +281,10 @@ async fn execute_hwatu_action(action: &str, input: &BrowserInput) -> Result<Tool
                 .context("url is required for open")?;
             let windows = list_windows().await?;
             let response = if windows.is_empty() || input.new_tab.unwrap_or(false) {
-                // No window yet (or a new one requested): open one.
-                ipc(json!({"cmd": "open", "url": url})).await?
+                // No window yet (or a new one requested): open one. Agents
+                // default to background mode so the window maps without
+                // stealing the user's focus; pass focus=true to present it.
+                ipc(json!({"cmd": "open", "url": url, "mode": open_mode(input)})).await?
             } else {
                 let mut req = Map::new();
                 req.insert("cmd".into(), json!("navigate"));
@@ -335,6 +349,7 @@ async fn execute_hwatu_action(action: &str, input: &BrowserInput) -> Result<Tool
         "new_tab" => {
             let mut req = Map::new();
             req.insert("cmd".into(), json!("open"));
+            req.insert("mode".into(), json!(open_mode(input)));
             if let Some(url) = &input.url {
                 req.insert("url".into(), json!(url));
             }
