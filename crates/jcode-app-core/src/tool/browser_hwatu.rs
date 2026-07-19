@@ -643,9 +643,26 @@ return { frames };"#;
                 .with_metadata(response))
         }
         "upload" => {
-            anyhow::bail!(
-                "upload is not supported by the hwatu backend (WebKit blocks programmatic file inputs). Use browser='firefox' for uploads."
-            )
+            let path = input
+                .path
+                .as_deref()
+                .context("path is required for upload")?;
+            let selector = input.selector.as_deref().unwrap_or("input[type=file]");
+            let mut req = Map::new();
+            req.insert("cmd".into(), json!("upload"));
+            req.insert("selector".into(), json!(selector));
+            req.insert("path".into(), json!(path));
+            if let Some(id) = window_id {
+                req.insert("id".into(), json!(id));
+            }
+            if let Some(t) = input.timeout_ms {
+                req.insert("timeout_ms".into(), json!(t));
+            }
+            let response = ipc(Value::Object(req)).await?;
+            let value = response.get("value").cloned().unwrap_or(Value::Null);
+            Ok(ToolOutput::new(serde_json::to_string_pretty(&value)?)
+                .with_title(title)
+                .with_metadata(value))
         }
         other => anyhow::bail!("Unsupported browser action for hwatu backend: {}", other),
     }
