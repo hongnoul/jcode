@@ -14,7 +14,7 @@ pub struct ImageRegion {
     pub hash: u64,
     /// Total height of the image placeholder in lines.
     pub height: u16,
-    /// Estimated rendered width in cells, including the left border. `0` means
+    /// Estimated rendered width in cells. `0` means
     /// unknown; consumers should treat the rows as fully occupied.
     pub width: u16,
     /// How the image should be fit into its region when drawn.

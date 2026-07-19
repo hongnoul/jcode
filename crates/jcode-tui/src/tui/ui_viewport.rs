@@ -993,7 +993,7 @@ pub(super) fn draw_messages(
                                 total_height,
                                 0,
                                 centered,
-                                true,
+                                false,
                             ) {
                                 image_area.height
                             } else {
@@ -1002,7 +1002,7 @@ pub(super) fn draw_messages(
                                     image_area,
                                     frame.buffer_mut(),
                                     centered,
-                                    true,
+                                    false,
                                 )
                             }
                         } else {
@@ -1050,14 +1050,14 @@ pub(super) fn draw_messages(
                                 total_height,
                                 skip_rows,
                                 centered,
-                                true,
+                                false,
                             ) {
                                 crate::tui::mermaid::render_image_widget_fit(
                                     hash,
                                     image_area,
                                     frame.buffer_mut(),
                                     centered,
-                                    true,
+                                    false,
                                 );
                             }
                         } else {

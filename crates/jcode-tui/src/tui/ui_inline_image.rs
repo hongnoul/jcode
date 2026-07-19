@@ -477,12 +477,12 @@ fn prepare_prewarm_request(req: PrewarmRequest) -> PrewarmOutcome {
             PrewarmOutcome::MaterializeFailed
         };
     }
-    match mermaid::inline_fit_readiness(req.id, req.target_cols, req.target_rows, true) {
+    match mermaid::inline_fit_readiness(req.id, req.target_cols, req.target_rows, false) {
         mermaid::InlineFitReadiness::Ready | mermaid::InlineFitReadiness::Unsupported => {
             PrewarmOutcome::Prepared
         }
         mermaid::InlineFitReadiness::NeedsPrewarm => {
-            if mermaid::prewarm_inline_fit_state(req.id, req.target_cols, req.target_rows, true) {
+            if mermaid::prewarm_inline_fit_state(req.id, req.target_cols, req.target_rows, false) {
                 PrewarmOutcome::Prepared
             } else {
                 PrewarmOutcome::FitFailed
@@ -559,7 +559,7 @@ fn coalesce_overflow(req: PrewarmRequest) {
 pub(crate) fn ensure_drawable(id: u64, target_cols: u16, target_rows: u16) -> bool {
     let materialized = mermaid::inline_image_is_materialized(id);
     let readiness = if materialized {
-        mermaid::inline_fit_readiness(id, target_cols, target_rows, true)
+        mermaid::inline_fit_readiness(id, target_cols, target_rows, false)
     } else {
         // Not decoded yet. On any protocol the first draw would block on a
         // full decode, so prewarm regardless of protocol support.
@@ -637,7 +637,7 @@ fn schedule_prewarm(id: u64, target_cols: u16, target_rows: u16) {
 /// first on-screen frame hits the `Ready` fast path with no rescale.
 pub(crate) fn prefetch(id: u64, target_cols: u16, target_rows: u16) {
     let readiness = if mermaid::inline_image_is_materialized(id) {
-        mermaid::inline_fit_readiness(id, target_cols, target_rows, true)
+        mermaid::inline_fit_readiness(id, target_cols, target_rows, false)
     } else {
         mermaid::InlineFitReadiness::NeedsPrewarm
     };
@@ -812,9 +812,9 @@ pub(crate) fn resolve_anchored_items_cached(
 }
 
 /// Compute how many `(rows, cols)` an inline image occupies at `chat_width`,
-/// capped at `cap_rows`. `cols` includes the 2-cell left border, matching what
-/// the draw step actually paints, so layout (e.g. info widget placement) can
-/// know the real horizontal extent.
+/// capped at `cap_rows`. Images render at the full chat width with no left
+/// border, so `cols` is exactly the painted extent and layout (e.g. info
+/// widget placement) can know the real horizontal extent.
 fn fit_geometry_with_cap(width: u32, height: u32, chat_width: u16, cap_rows: u16) -> (u16, u16) {
     // Single source of truth for inline-fit placeholder geometry, shared with
     // the mermaid crate so diagrams and raster images stay in lockstep with
