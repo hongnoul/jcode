@@ -257,14 +257,21 @@ impl BrowserProvider for HwatuProvider {
 }
 
 /// hwatu open mode for agent-driven windows. Agents verify pages, so
-/// the default is "background": the window maps and renders (eval and
-/// screenshot work) but never steals the user's focus. An explicit
+/// the default is "headless": no toplevel is ever mapped, the WM never
+/// sees the window, and eval/screenshot still work (hwatud realizes
+/// the widget and allocates a 1024x768 viewport). An explicit
 /// `focus: true` on the tool call opts into "normal" (present) mode.
+/// `JCODE_HWATU_OPEN_MODE=background|normal|headless` overrides the
+/// non-focused default, e.g. for users who want verification windows
+/// visible-but-unfocused in their tiler.
 fn open_mode(input: &BrowserInput) -> &'static str {
     if input.focus.unwrap_or(false) {
-        "normal"
-    } else {
-        "background"
+        return "normal";
+    }
+    match std::env::var("JCODE_HWATU_OPEN_MODE").as_deref() {
+        Ok("background") => "background",
+        Ok("normal") => "normal",
+        _ => "headless",
     }
 }
 
@@ -282,8 +289,8 @@ async fn execute_hwatu_action(action: &str, input: &BrowserInput) -> Result<Tool
             let windows = list_windows().await?;
             let response = if windows.is_empty() || input.new_tab.unwrap_or(false) {
                 // No window yet (or a new one requested): open one. Agents
-                // default to background mode so the window maps without
-                // stealing the user's focus; pass focus=true to present it.
+                // default to headless mode so nothing appears in the WM;
+                // pass focus=true to present a visible window instead.
                 ipc(json!({"cmd": "open", "url": url, "mode": open_mode(input)})).await?
             } else {
                 let mut req = Map::new();
