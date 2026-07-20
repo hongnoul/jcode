@@ -12,16 +12,21 @@ use crate::storage::{active_pids_dir, register_active_pid, unregister_active_pid
 /// Wraps the on-disk streaming marker from `jcode-storage` (cleared on every
 /// exit path so presence UIs never show a phantom streaming session) and
 /// additionally holds a macOS power assertion so the system does not
-/// idle-sleep in the middle of a streaming model response.
+/// idle-sleep in the middle of a streaming model response. Also publishes the
+/// session's UI status file (`running` while alive, recomputed idle state on
+/// drop) for external presence consumers.
 pub struct StreamingGuard {
     _marker: crate::storage::StreamingGuard,
+    _ui_status: crate::session_status::TurnStatusGuard,
     #[allow(dead_code)]
     sleep_assertion: crate::platform::PowerAssertion,
 }
 
 impl StreamingGuard {
     pub fn new(session_id: impl Into<String>) -> Self {
+        let session_id = session_id.into();
         Self {
+            _ui_status: crate::session_status::TurnStatusGuard::new(session_id.clone()),
             _marker: crate::storage::StreamingGuard::new(session_id),
             sleep_assertion: crate::platform::PowerAssertion::prevent_user_idle_system_sleep(
                 "Jcode streaming model response",
@@ -1030,12 +1035,7 @@ request in this new forked session, using the inherited conversation only as con
 
     /// Mark session as active (e.g., when resuming)
     pub fn mark_active(&mut self) {
-        self.status = SessionStatus::Active;
-        let pid = std::process::id();
-        self.last_pid = Some(pid);
-        self.last_active_at = Some(Utc::now());
-        register_active_pid(&self.id, pid);
-        self.sync_internal_presence_flag();
+        self.mark_active_with_pid(std::process::id());
     }
 
     /// Mark session as active for a specific PID
@@ -1045,6 +1045,20 @@ request in this new forked session, using the inherited conversation only as con
         self.last_active_at = Some(Utc::now());
         register_active_pid(&self.id, pid);
         self.sync_internal_presence_flag();
+        self.publish_ui_status();
+    }
+
+    /// Publish this session's initial UI status file for external presence
+    /// consumers (workspace sorter, waybar ticker). A session with no visible
+    /// conversation yet is `fresh`; otherwise the idle state is derived from
+    /// its todo list. Turns overwrite this via `StreamingGuard`.
+    fn publish_ui_status(&self) {
+        let state = if self.messages.iter().any(is_visible_conversation_message) {
+            crate::session_status::idle_state_from_todos(&self.id)
+        } else {
+            crate::storage::SessionUiState::Fresh
+        };
+        crate::session_status::publish(&self.id, state);
     }
 
     /// Keep the on-disk internal-session flag in sync with this session's
