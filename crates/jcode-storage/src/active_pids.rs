@@ -144,6 +144,12 @@ fn process_is_running(pid: u32) -> bool {
     result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+/// Crate-internal alias so sibling modules (session_status pruning) can share
+/// the same liveness semantics without re-implementing them.
+pub(crate) fn process_is_running_crate(pid: u32) -> bool {
+    process_is_running(pid)
+}
+
 #[cfg(not(unix))]
 fn process_is_running(pid: u32) -> bool {
     // Best-effort fallback for platforms where this low-level storage crate does
@@ -272,10 +278,9 @@ pub fn user_session_counts() -> SessionCounts {
 mod tests {
     use super::*;
 
-    /// Serialize tests that mutate `JCODE_HOME`.
+    /// Serialize tests that mutate `JCODE_HOME` (crate-wide lock).
     fn lock_env() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        crate::lock_test_env_crate()
     }
 
     #[test]

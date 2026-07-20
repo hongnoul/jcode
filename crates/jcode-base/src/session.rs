@@ -1053,6 +1053,9 @@ request in this new forked session, using the inherited conversation only as con
     /// conversation yet is `fresh`; otherwise the idle state is derived from
     /// its todo list. Turns overwrite this via `StreamingGuard`.
     fn publish_ui_status(&self) {
+        // Housekeeping: drop status files left behind by sessions that died
+        // without a clean shutdown (SIGKILL, crash before unregister).
+        crate::storage::prune_stale_session_ui_status();
         let state = if self.messages.iter().any(is_visible_conversation_message) {
             crate::session_status::idle_state_from_todos(&self.id)
         } else {

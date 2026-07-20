@@ -99,10 +99,48 @@ pub fn read_session_ui_status(session_id: &str) -> Option<SessionUiStatus> {
     crate::read_json(&status_path(session_id)?).ok()
 }
 
-/// Remove the status file for `session_id`, if present.
+/// Remove the status file for `session_id`, if present, along with the
+/// `.bak` sibling the atomic writer leaves behind.
 pub fn clear_session_ui_status(session_id: &str) {
     if let Some(path) = status_path(session_id) {
+        let _ = std::fs::remove_file(path.with_extension("bak"));
         let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Prune status files whose session is no longer live (no active-pid entry,
+/// or the recorded owner process is gone). Sessions killed without a clean
+/// shutdown (SIGKILL, power loss) never reach `unregister_active_pid`, so
+/// their status files would otherwise accumulate forever. Called on session
+/// activation; the directory only ever holds a handful of small files.
+pub fn prune_stale_session_ui_status() {
+    let Some(dir) = session_status_dir() else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    let active_dir = crate::active_pids_dir();
+    for entry in entries.filter_map(|e| e.ok()) {
+        let name = entry.file_name();
+        let Some(session_id) = name.to_str().and_then(|n| n.strip_suffix(".json")) else {
+            // `.bak` siblings are removed together with their primary below;
+            // orphaned ones (primary already gone) are stale by definition.
+            if let Some(session_id) = name.to_str().and_then(|n| n.strip_suffix(".bak")) {
+                if !dir.join(format!("{session_id}.json")).exists() {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+            continue;
+        };
+        let live = active_dir
+            .as_ref()
+            .and_then(|d| std::fs::read_to_string(d.join(session_id)).ok())
+            .and_then(|raw| raw.trim().parse::<u32>().ok())
+            .is_some_and(crate::active_pids::process_is_running_crate);
+        if !live {
+            clear_session_ui_status(session_id);
+        }
     }
 }
 
@@ -110,11 +148,9 @@ pub fn clear_session_ui_status(session_id: &str) {
 mod tests {
     use super::*;
 
-    /// Serialize tests that mutate `JCODE_HOME` (shared with other storage
-    /// tests via process-wide env).
+    /// Serialize tests that mutate `JCODE_HOME` (crate-wide lock).
     fn lock_env() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        crate::lock_test_env_crate()
     }
 
     #[test]
@@ -144,6 +180,38 @@ mod tests {
         clear_session_ui_status("session_x");
         assert!(read_session_ui_status("session_x").is_none());
 
+        jcode_core::env::remove_var("JCODE_HOME");
+    }
+
+    #[test]
+    fn prune_drops_dead_sessions_keeps_live_ones() {
+        let _guard = lock_env();
+        let temp = tempfile::tempdir().expect("tempdir");
+        jcode_core::env::set_var("JCODE_HOME", temp.path());
+
+        // Live session: active-pid entry pointing at this process.
+        crate::register_active_pid("session_live", std::process::id());
+        write_session_ui_status("session_live", SessionUiState::Waiting, None);
+
+        // Dead session: active-pid entry pointing at a dead pid.
+        crate::register_active_pid("session_dead", 999_999_999);
+        write_session_ui_status("session_dead", SessionUiState::Running, None);
+
+        // Orphan: status file with no active-pid entry at all, plus a stray
+        // .bak with no primary.
+        write_session_ui_status("session_orphan", SessionUiState::Finished, None);
+        let dir = session_status_dir().expect("dir");
+        std::fs::write(dir.join("session_ghost.bak"), b"{}").expect("write bak");
+
+        prune_stale_session_ui_status();
+
+        assert!(read_session_ui_status("session_live").is_some());
+        assert!(read_session_ui_status("session_dead").is_none());
+        assert!(read_session_ui_status("session_orphan").is_none());
+        assert!(!dir.join("session_ghost.bak").exists());
+
+        crate::unregister_active_pid("session_live");
+        crate::unregister_active_pid("session_dead");
         jcode_core::env::remove_var("JCODE_HOME");
     }
 }
