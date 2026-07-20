@@ -73,7 +73,7 @@ impl App {
             .unwrap_or_else(|| session_id.to_string());
         let session_icon = crate::id::session_icon(&session_name);
         // Keep the live terminal title aligned with /resume: an explicit rename
-        // wins, then the session's working directory (e.g. git/beni-hana), then
+        // wins, then the session's working directory (e.g. ~/git/beni-hana), then
         // the model's current todo/goal title, then the generated title.
         let working_dir_label = self
             .session
