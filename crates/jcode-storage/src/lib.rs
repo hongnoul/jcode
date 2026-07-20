@@ -88,8 +88,8 @@ pub use active_pids::{
     user_session_presence,
 };
 pub use session_status::{
-    SessionUiState, SessionUiStatus, clear_session_ui_status, read_session_ui_status,
-    session_status_dir, write_session_ui_status,
+    SessionUiState, SessionUiStatus, clear_session_ui_status, prune_stale_session_ui_status,
+    read_session_ui_status, session_status_dir, write_session_ui_status,
 };
 
 /// Platform-aware runtime directory for sockets and ephemeral state.
@@ -748,6 +748,15 @@ mod windows_hardening_tests {
         assert!(!state.enqueue(&file, false, now));
         assert!(state.pending_files.is_empty());
     }
+}
+
+/// Serialize tests (crate-wide) that mutate `JCODE_HOME`, which is
+/// process-global state. Individual test modules previously used their own
+/// locks, which failed to exclude each other across modules.
+#[cfg(test)]
+pub(crate) fn lock_test_env_crate() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]
