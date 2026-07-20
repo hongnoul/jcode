@@ -62,9 +62,11 @@ pub fn unregister_active_pid(session_id: &str) {
     if let Some(dir) = active_pids_dir() {
         let _ = std::fs::remove_file(dir.join(session_id));
     }
-    // A closed session is never streaming, and its internal flag is moot.
+    // A closed session is never streaming, its internal flag is moot, and its
+    // UI status file no longer describes anything live.
     unmark_streaming(session_id);
     set_session_internal(session_id, false);
+    crate::clear_session_ui_status(session_id);
 }
 
 /// Mark a session as actively streaming a model response.
