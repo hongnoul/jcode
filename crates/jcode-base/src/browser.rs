@@ -829,6 +829,14 @@ fn should_prompt_extension_install(status: &BrowserStatus) -> bool {
     !status.setup_complete
 }
 
+#[cfg(target_os = "linux")]
+fn which_binary(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
 async fn install_extension() -> Result<String> {
     let xpi = xpi_path();
     let mut msg = String::new();
@@ -844,9 +852,25 @@ async fn install_extension() -> Result<String> {
 
     #[cfg(target_os = "linux")]
     {
-        let _ = tokio::process::Command::new("xdg-open")
-            .arg(&xpi_url)
-            .spawn();
+        // Do NOT use xdg-open here: `.xpi` files are zip archives, so the
+        // desktop MIME database maps them to application/zip and xdg-open
+        // launches the file manager (Nautilus/archive viewer) instead of
+        // Firefox. Open the XPI with Firefox directly so the extension
+        // install prompt appears.
+        let firefox = ["firefox", "firefox-esr", "firefox-bin"]
+            .iter()
+            .find_map(|name| which_binary(name));
+        match firefox {
+            Some(bin) => {
+                let _ = tokio::process::Command::new(bin).arg(&xpi_url).spawn();
+            }
+            None => {
+                return Err(anyhow::anyhow!(
+                    "Firefox not found on PATH. Install Firefox, then install the extension manually: Firefox > about:addons > Install Add-on From File > {}",
+                    xpi.display()
+                ));
+            }
+        }
     }
     #[cfg(target_os = "macos")]
     {
