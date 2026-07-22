@@ -211,6 +211,10 @@ pub fn git_pull_failure_is_divergence(stderr: &str) -> bool {
         || stderr.contains("Not possible to fast-forward")
         || stderr.contains("refusing to merge unrelated histories")
         || stderr.contains("have diverged")
+        // Emitted by `git pull` when concurrent fetches from other jcode
+        // processes interleave writes to FETCH_HEAD; in practice it shows up
+        // when the checkout has local commits that cannot fast-forward.
+        || stderr.contains("Cannot fast-forward to multiple branches")
 }
 
 /// Whether a `summarize_git_pull_failure` summary describes a divergence.
@@ -606,6 +610,10 @@ mod tests {
         assert!(!summary_is_divergence(&summarize_git_pull_failure(
             b"hint: ignore me\nfatal: no upstream\n"
         )));
+        assert_eq!(
+            summarize_git_pull_failure(b"fatal: Cannot fast-forward to multiple branches.\n"),
+            GIT_PULL_DIVERGED_SUMMARY
+        );
     }
 
     #[test]

@@ -144,6 +144,49 @@ pub fn run_git_pull_ff_only(repo_dir: &Path, quiet: bool) -> Result<()> {
     }
 }
 
+/// Pull with fast-forward, falling back to `git pull --rebase --autostash`
+/// when the checkout has local commits so routine auto-updates don't get
+/// permanently stuck behind upstream. A rebase that hits conflicts is aborted
+/// (which also restores the autostash), leaving the repository exactly as it
+/// was, and the original divergence error is returned so callers can surface
+/// the manual merge flow.
+pub fn run_git_pull_with_rebase_fallback(repo_dir: &Path, quiet: bool) -> Result<()> {
+    let err = match run_git_pull_ff_only(repo_dir, quiet) {
+        Ok(()) => return Ok(()),
+        Err(err) => err,
+    };
+    if !jcode_update_core::summary_is_divergence(&err.to_string()) {
+        return Err(err);
+    }
+
+    crate::logging::info(
+        "Update pull could not fast-forward; rebasing local commits onto upstream...",
+    );
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["pull", "--rebase", "--autostash"]);
+    if quiet {
+        cmd.arg("-q");
+    }
+    let output = cmd
+        .current_dir(repo_dir)
+        .output()
+        .context("Failed to run git pull --rebase")?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    // Restore the pre-rebase state (aborting also re-applies the autostash).
+    let _ = std::process::Command::new("git")
+        .args(["rebase", "--abort"])
+        .current_dir(repo_dir)
+        .output();
+    crate::logging::warn(&format!(
+        "Rebase fallback failed; repository left unchanged: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    ));
+    Err(err)
+}
+
 fn is_inside_git_repo(path: &std::path::Path) -> bool {
     let mut dir = if path.is_dir() {
         Some(path)
@@ -1200,6 +1243,116 @@ mod tests {
     use super::*;
     use jcode_update_core::parse_sha256sums;
     use sha2::{Digest, Sha256};
+
+    fn git(dir: &Path, args: &[&str]) -> std::process::Output {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "test")
+            .env("GIT_AUTHOR_EMAIL", "test@test")
+            .env("GIT_COMMITTER_NAME", "test")
+            .env("GIT_COMMITTER_EMAIL", "test@test")
+            .output()
+            .expect("git command runs")
+    }
+
+    fn git_ok(dir: &Path, args: &[&str]) {
+        let out = git(dir, args);
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn commit_file(dir: &Path, name: &str, contents: &str, message: &str) {
+        std::fs::write(dir.join(name), contents).unwrap();
+        git_ok(dir, &["add", "."]);
+        git_ok(dir, &["commit", "-q", "-m", message]);
+    }
+
+    /// Local repo with commits diverged from upstream, plus a second clone
+    /// used to advance the upstream branch. Returns (tempdir, local_path).
+    fn diverged_repos(conflicting: bool) -> (tempfile::TempDir, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let remote = tmp.path().join("remote");
+        std::fs::create_dir(&remote).unwrap();
+        git_ok(&remote, &["init", "-q", "--bare", "-b", "master"]);
+
+        let seed = tmp.path().join("seed");
+        git_ok(
+            tmp.path(),
+            &["clone", "-q", remote.to_str().unwrap(), "seed"],
+        );
+        commit_file(&seed, "base.txt", "base", "base");
+        git_ok(&seed, &["push", "-q", "origin", "master"]);
+
+        let local = tmp.path().join("local");
+        git_ok(
+            tmp.path(),
+            &["clone", "-q", remote.to_str().unwrap(), "local"],
+        );
+        // Match the narrow single-branch refspec used by the source checkout.
+        git_ok(
+            &local,
+            &[
+                "config",
+                "remote.origin.fetch",
+                "+refs/heads/master:refs/remotes/origin/master",
+            ],
+        );
+        commit_file(
+            &local,
+            if conflicting { "shared.txt" } else { "local.txt" },
+            "local change",
+            "local commit",
+        );
+
+        // Advance upstream so the branches diverge.
+        commit_file(
+            &seed,
+            if conflicting { "shared.txt" } else { "remote.txt" },
+            "remote change",
+            "remote commit",
+        );
+        git_ok(&seed, &["push", "-q", "origin", "master"]);
+
+        (tmp, local)
+    }
+
+    #[test]
+    fn test_pull_rebase_fallback_recovers_diverged_checkout() {
+        let (_tmp, local) = diverged_repos(false);
+
+        // ff-only fails on the diverged checkout...
+        let err = run_git_pull_ff_only(&local, true).unwrap_err();
+        assert!(jcode_update_core::summary_is_divergence(&err.to_string()));
+
+        // ...but the fallback rebases the local commit onto upstream.
+        run_git_pull_with_rebase_fallback(&local, true).unwrap();
+        let behind = git(&local, &["rev-list", "--count", "HEAD..@{u}"]);
+        assert_eq!(String::from_utf8_lossy(&behind.stdout).trim(), "0");
+        assert!(local.join("local.txt").exists());
+        assert!(local.join("remote.txt").exists());
+    }
+
+    #[test]
+    fn test_pull_rebase_fallback_aborts_cleanly_on_conflict() {
+        let (_tmp, local) = diverged_repos(true);
+        let head_before = git(&local, &["rev-parse", "HEAD"]).stdout;
+
+        let err = run_git_pull_with_rebase_fallback(&local, true).unwrap_err();
+        assert!(jcode_update_core::summary_is_divergence(&err.to_string()));
+
+        // Repository is left exactly where it started, with no rebase in
+        // progress and the working tree clean.
+        let head_after = git(&local, &["rev-parse", "HEAD"]).stdout;
+        assert_eq!(head_before, head_after);
+        assert!(!local.join(".git").join("rebase-merge").exists());
+        let status = git(&local, &["status", "--porcelain"]);
+        assert_eq!(String::from_utf8_lossy(&status.stdout).trim(), "");
+    }
 
     #[test]
     fn test_version_is_newer() {

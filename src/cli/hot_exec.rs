@@ -282,7 +282,7 @@ pub fn run_auto_update() -> Result<()> {
     let repo_dir =
         get_repo_dir().ok_or_else(|| anyhow::anyhow!("Could not find jcode repository"))?;
 
-    update::run_git_pull_ff_only(&repo_dir, true)?;
+    update::run_git_pull_with_rebase_fallback(&repo_dir, true)?;
 
     crate::logging::info("Building updated source version...");
     let build_output = ProcessCommand::new("cargo")
@@ -381,7 +381,7 @@ pub fn run_update() -> Result<()> {
     update::print_centered(&format!("Updating jcode from {}...", repo_dir.display()));
 
     update::print_centered("Pulling latest changes (fast-forward only)...");
-    update::run_git_pull_ff_only(&repo_dir, true)?;
+    update::run_git_pull_with_rebase_fallback(&repo_dir, true)?;
 
     update::print_centered("Building...");
     let build_status = ProcessCommand::new("cargo")
