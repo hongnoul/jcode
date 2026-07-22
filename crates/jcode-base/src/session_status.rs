@@ -21,12 +21,14 @@ fn status_title(session_id: &str) -> Option<String> {
     crate::process_title::terminal_window_display_title_for_id(session_id)
 }
 
-/// Idle state derived from the session's on-disk todo list: finished when a
-/// non-empty plan is fully completed, waiting otherwise. Never returns
-/// `Fresh`: callers use this after a turn ran, which implies user input.
+/// Idle state derived from the session's on-disk todo list: waiting only when
+/// there is an actual incomplete plan, finished otherwise (including sessions
+/// with no todos at all, e.g. Q&A chats, so idle sessions default to green
+/// rather than red). Never returns `Fresh`: callers use this after a turn
+/// ran, which implies user input.
 pub fn idle_state_from_todos(session_id: &str) -> SessionUiState {
     let todos = crate::todo::load_todos(session_id).unwrap_or_default();
-    if !todos.is_empty() && todos.iter().all(|todo| todo.status == "completed") {
+    if todos.iter().all(|todo| todo.status == "completed") {
         SessionUiState::Finished
     } else {
         SessionUiState::Waiting
@@ -78,7 +80,21 @@ mod tests {
                 Some(SessionUiState::Running)
             );
         }
-        // No todos: idle resolves to waiting.
+        // No todos: idle resolves to finished (nothing pending, not red).
+        assert_eq!(
+            read_session_ui_status(id).map(|s| s.state),
+            Some(SessionUiState::Finished)
+        );
+
+        // Incomplete plan: idle resolves to waiting.
+        let todos: Vec<jcode_task_types::TodoItem> = serde_json::from_str(
+            r#"[{"content":"x","status":"in_progress","priority":"high","id":"1"}]"#,
+        )
+        .expect("parse todos");
+        crate::todo::save_todos(id, &todos).expect("save todos");
+        {
+            let _turn = TurnStatusGuard::new(id);
+        }
         assert_eq!(
             read_session_ui_status(id).map(|s| s.state),
             Some(SessionUiState::Waiting)
