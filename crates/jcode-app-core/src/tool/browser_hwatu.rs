@@ -18,12 +18,56 @@ use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicI64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
 pub(super) struct HwatuProvider;
 
 pub(super) static HWATU_PROVIDER: HwatuProvider = HwatuProvider;
+
+/// The hwatu window this jcode process last opened or targeted. The
+/// daemon keeps its own "last target" for id-less commands, but that
+/// state is global across every client: with several jcode sessions
+/// sharing one daemon, another agent's open would silently redirect
+/// this session's id-less eval/screenshot onto *their* page. Pinning
+/// the session's own window here keeps concurrent agents isolated
+/// without protocol changes. 0 means "none yet".
+static SESSION_WINDOW: AtomicI64 = AtomicI64::new(0);
+
+fn remember_window(response: &Value) {
+    if let Some(id) = response
+        .get("window")
+        .and_then(|w| w.get("id"))
+        .and_then(|v| v.as_i64())
+    {
+        SESSION_WINDOW.store(id, Ordering::Relaxed);
+    }
+}
+
+/// The window a tool call should address: an explicit id always wins,
+/// else the window this session opened, provided it is still alive.
+async fn session_window_id(input: &BrowserInput) -> Option<i64> {
+    if let Some(id) = input.window_id.or(input.tab_id) {
+        return Some(id);
+    }
+    let remembered = SESSION_WINDOW.load(Ordering::Relaxed);
+    if remembered == 0 {
+        return None;
+    }
+    // Stale ids (window closed, daemon restarted) must not turn into
+    // hard "no window N" errors; fall back to daemon-side resolution.
+    let alive = list_windows().await.ok().is_some_and(|ws| {
+        ws.iter()
+            .any(|w| w.get("id").and_then(|v| v.as_i64()) == Some(remembered))
+    });
+    if alive {
+        Some(remembered)
+    } else {
+        SESSION_WINDOW.store(0, Ordering::Relaxed);
+        None
+    }
+}
 
 /// Daemon socket: `$XDG_RUNTIME_DIR/hwatu.sock`, matching hwatu-ipc.
 fn socket_path() -> Option<PathBuf> {
@@ -277,7 +321,10 @@ fn open_mode(input: &BrowserInput) -> &'static str {
 
 async fn execute_hwatu_action(action: &str, input: &BrowserInput) -> Result<ToolOutput> {
     // hwatu has no tabs; `window_id` and `tab_id` both address windows.
-    let window_id = input.window_id.or(input.tab_id);
+    // With neither set, target the window this session opened rather
+    // than deferring to the daemon's global last-target, which another
+    // concurrent jcode session may have moved to its own window.
+    let window_id = session_window_id(input).await;
     let title = window_title(action);
 
     match action {
@@ -286,12 +333,17 @@ async fn execute_hwatu_action(action: &str, input: &BrowserInput) -> Result<Tool
                 .url
                 .as_deref()
                 .context("url is required for open")?;
-            let windows = list_windows().await?;
-            let response = if windows.is_empty() || input.new_tab.unwrap_or(false) {
-                // No window yet (or a new one requested): open one. Agents
-                // default to headless mode so nothing appears in the WM;
-                // pass focus=true to present a visible window instead.
-                ipc(json!({"cmd": "open", "url": url, "mode": open_mode(input)})).await?
+            let response = if window_id.is_none() || input.new_tab.unwrap_or(false) {
+                // No window owned by this session (or a new one
+                // requested): open one. Navigating an id-less target
+                // here could hijack a window some *other* jcode session
+                // is driving on the shared daemon. Agents default to
+                // headless mode so nothing appears in the WM; pass
+                // focus=true to present a visible window instead.
+                let response =
+                    ipc(json!({"cmd": "open", "url": url, "mode": open_mode(input)})).await?;
+                remember_window(&response);
+                response
             } else {
                 let mut req = Map::new();
                 req.insert("cmd".into(), json!("navigate"));
@@ -303,7 +355,9 @@ async fn execute_hwatu_action(action: &str, input: &BrowserInput) -> Result<Tool
                 if let Some(t) = input.timeout_ms {
                     req.insert("timeout_ms".into(), json!(t));
                 }
-                ipc(Value::Object(req)).await?
+                let response = ipc(Value::Object(req)).await?;
+                remember_window(&response);
+                response
             };
             let window = response.get("window").cloned().unwrap_or(Value::Null);
             Ok(ToolOutput::new(format!("Opened {}", url))
@@ -361,6 +415,7 @@ async fn execute_hwatu_action(action: &str, input: &BrowserInput) -> Result<Tool
                 req.insert("url".into(), json!(url));
             }
             let response = ipc(Value::Object(req)).await?;
+            remember_window(&response);
             let window = response.get("window").cloned().unwrap_or(Value::Null);
             Ok(ToolOutput::new(serde_json::to_string_pretty(&window)?)
                 .with_title(title)
