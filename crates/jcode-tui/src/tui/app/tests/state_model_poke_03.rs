@@ -42,6 +42,42 @@ fn test_model_picker_preview_arrow_keys_navigate() {
 }
 
 #[test]
+fn test_model_picker_preview_enter_with_unmatched_explicit_spec_submits_command() {
+    let mut app = create_test_app();
+    configure_test_remote_models(&mut app);
+
+    // Route-prefixed specs like `openai-api:gpt-5.6-sol` are valid /model
+    // arguments but cannot fuzzy-match any picker entry (the `:` prefix is
+    // not part of catalog names). Enter must submit the command instead of
+    // silently discarding the input (previous behavior).
+    for c in "/model openai-api:gpt-5.6-sol".chars() {
+        app.handle_key(KeyCode::Char(c), KeyModifiers::empty())
+            .unwrap();
+    }
+
+    let picker = app
+        .inline_interactive_state
+        .as_ref()
+        .expect("model picker preview should be open");
+    assert!(picker.preview);
+    assert!(
+        picker.filtered.is_empty(),
+        "explicit route spec should not fuzzy-match catalog entries"
+    );
+
+    let messages_before = app.display_messages.len();
+    app.handle_key(KeyCode::Enter, KeyModifiers::empty())
+        .unwrap();
+
+    assert!(app.inline_interactive_state.is_none());
+    assert!(app.input().is_empty(), "input should be consumed by submit");
+    assert!(
+        app.display_messages.len() > messages_before,
+        "submitting the explicit /model spec should produce feedback instead of being silently dropped"
+    );
+}
+
+#[test]
 fn test_open_model_picker_without_routes_shows_actionable_guidance() {
     let mut app = create_test_app();
 

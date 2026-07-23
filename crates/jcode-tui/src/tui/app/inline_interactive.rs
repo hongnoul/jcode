@@ -2050,6 +2050,20 @@ impl App {
                 if let Some(ref mut picker) = self.inline_interactive_state {
                     if picker.filtered.is_empty() {
                         self.inline_interactive_state = None;
+                        // An explicit argument (e.g. `/model openai-api:gpt-x`)
+                        // may be a valid spec the fuzzy filter cannot match,
+                        // such as a route-prefixed model. Fall through so the
+                        // command submits normally instead of being silently
+                        // discarded.
+                        let has_command_argument = self
+                            .input
+                            .trim_start()
+                            .split_once(char::is_whitespace)
+                            .map(|(_, arg)| !arg.trim().is_empty())
+                            .unwrap_or(false);
+                        if has_command_argument {
+                            return Ok(false);
+                        }
                         self.input.clear();
                         self.cursor_pos = 0;
                         return Ok(true);
