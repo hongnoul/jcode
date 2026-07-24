@@ -90,6 +90,56 @@ async fn execute_rejects_removed_mode_parameter() {
 }
 
 #[test]
+fn image_target_detection_is_case_insensitive_and_file_only() {
+    let image = ResolvedTarget::Local {
+        path: PathBuf::from("/tmp/diagnostic.PNG"),
+        kind: LocalTargetKind::File,
+    };
+    assert!(is_image_target(&image));
+
+    let text = ResolvedTarget::Local {
+        path: PathBuf::from("/tmp/diagnostic.txt"),
+        kind: LocalTargetKind::File,
+    };
+    assert!(!is_image_target(&text));
+
+    let directory = ResolvedTarget::Local {
+        path: PathBuf::from("/tmp/screenshots.png"),
+        kind: LocalTargetKind::Directory,
+    };
+    assert!(!is_image_target(&directory));
+    assert!(!is_image_target(&ResolvedTarget::Url(
+        "https://example.com/image.png".to_string()
+    )));
+}
+
+#[tokio::test]
+async fn execute_refuses_unconfirmed_image_open_before_spawning_gui() {
+    let tool = OpenTool::new();
+    let temp_file = std::env::temp_dir().join("jcode-open-tool-unconfirmed-image.png");
+    std::fs::write(&temp_file, b"not actually an image").unwrap();
+
+    let err = tool
+        .execute(json!({"action": "open", "target": temp_file}), make_ctx())
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Refusing to launch the desktop image application"),
+        "err={err}"
+    );
+
+    let _ = std::fs::remove_file(&temp_file);
+}
+
+#[test]
+fn schema_documents_confirmed_image_opt_in() {
+    let schema = OpenTool::new().parameters_schema();
+    assert_eq!(schema["properties"]["confirmed"]["type"], json!("boolean"));
+    assert!(OpenTool::new().description().contains("read tool"));
+}
+
+#[test]
 fn expand_home_handles_plain_non_tilde_paths() {
     let path = expand_home("docs/spec.pdf").unwrap();
     assert_eq!(path, PathBuf::from("docs/spec.pdf"));

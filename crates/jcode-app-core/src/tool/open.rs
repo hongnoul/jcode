@@ -26,6 +26,8 @@ struct OpenInput {
     #[serde(default)]
     action: Option<String>,
     target: String,
+    #[serde(default)]
+    confirmed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,7 +99,7 @@ impl Tool for OpenTool {
     }
 
     fn description(&self) -> &str {
-        "Open or reveal a file, folder, or URL for the user."
+        "Open or reveal a file, folder, or URL for the user. Do not use this tool to inspect diagnostic images: it launches the user's desktop image application. Use the image-capable read tool instead. Opening an image requires confirmed=true and is only appropriate when the user explicitly asked to open it."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -114,6 +116,10 @@ impl Tool for OpenTool {
                 "target": {
                     "type": "string",
                     "description": "Open target."
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "description": "Required to open an image in a desktop application. Set true only when the user explicitly asked to open that image. For agent inspection, leave false and use the read tool instead."
                 }
             }
         })
@@ -140,6 +146,12 @@ impl Tool for OpenTool {
             }
         };
 
+        if action == OpenAction::Open && is_image_target(&target) && !params.confirmed {
+            anyhow::bail!(
+                "Refusing to launch the desktop image application without explicit user confirmation. Use the image-capable `read` tool for inspection, or pass confirmed=true only when the user asked to open this image."
+            );
+        }
+
         let outcome = match action {
             OpenAction::Open => perform_open(&target).await,
             OpenAction::Reveal => perform_reveal(&target).await,
@@ -156,6 +168,35 @@ impl Tool for OpenTool {
             .with_title(format!("open {}", action_name))
             .with_metadata(outcome.metadata))
     }
+}
+
+fn is_image_target(target: &ResolvedTarget) -> bool {
+    let ResolvedTarget::Local {
+        path,
+        kind: LocalTargetKind::File,
+    } = target
+    else {
+        return false;
+    };
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png"
+                    | "jpg"
+                    | "jpeg"
+                    | "webp"
+                    | "gif"
+                    | "bmp"
+                    | "tif"
+                    | "tiff"
+                    | "svg"
+                    | "avif"
+                    | "heic"
+                    | "heif"
+            )
+        })
 }
 
 fn resolve_target(target: &str, ctx: &ToolContext) -> Result<ResolvedTarget> {
