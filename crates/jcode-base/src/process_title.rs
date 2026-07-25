@@ -56,7 +56,7 @@ pub fn terminal_session_label(session_name: &str, display_title: Option<&str>) -
 /// Shorten a session working directory for window-title display: paths under
 /// the home directory keep their full path with the home prefix shown as `~`
 /// (e.g. `/home/u/git/doraji` becomes `~/git/doraji`, the home directory
-/// itself becomes `home`); other paths are shown as-is.
+/// itself becomes `~`); other paths are shown as-is.
 pub fn compact_working_dir_label(working_dir: &str) -> Option<String> {
     let trimmed = working_dir.trim();
     if trimmed.is_empty() {
@@ -65,7 +65,7 @@ pub fn compact_working_dir_label(working_dir: &str) -> Option<String> {
     let path = std::path::Path::new(trimmed);
     if let Some(home) = dirs::home_dir() {
         if path == home {
-            return Some("home".to_string());
+            return Some("~".to_string());
         }
         if let Ok(relative) = path.strip_prefix(&home) {
             let relative = relative.to_string_lossy();
@@ -219,7 +219,7 @@ mod tests {
         );
         assert_eq!(
             compact_working_dir_label(&home.to_string_lossy()),
-            Some("home".to_string())
+            Some("~".to_string())
         );
         assert_eq!(
             compact_working_dir_label("/srv/deploy"),
