@@ -513,6 +513,27 @@ pub fn format_binding(binding: &KeyBinding) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ctrl_shift_u_and_i_parse_for_prompt_jump() {
+        let up = parse_keybinding("ctrl+shift+u").expect("ctrl+shift+u parses");
+        assert_eq!(up.code, KeyCode::Char('u'));
+        assert_eq!(up.modifiers, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        // Kitty protocol reports Ctrl+Shift+U as Char('U')+CTRL|SHIFT; ensure it matches.
+        assert!(up.matches(
+            KeyCode::Char('U'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
+        ));
+        assert!(up.matches(
+            KeyCode::Char('u'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
+        ));
+        let down = parse_keybinding("ctrl+shift+i").expect("ctrl+shift+i parses");
+        assert!(down.matches(
+            KeyCode::Char('I'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
+        ));
+    }
+
     use super::*;
 
     /// Decode a kitty CSI-u modifier byte (bitfield + 1) into `KeyModifiers`.
