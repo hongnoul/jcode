@@ -1056,6 +1056,12 @@ pub struct DisplayConfig {
     /// Render swarm/file-activity notifications in a compact single-line form
     /// instead of the full multi-line card with diff preview (default: false)
     pub compact_notifications: bool,
+    /// Start with typing scroll lock enabled: typing while scrolled up keeps
+    /// the current chat position instead of jumping to the bottom
+    /// (default: false). Toggle at runtime with the
+    /// `typing_scroll_lock_toggle` keybinding (Alt+S by default).
+    #[serde(default)]
+    pub typing_scroll_lock: bool,
     /// Override the Alt/Option label shown in copy badges. Empty = auto (⌥ on macOS, Alt elsewhere).
     pub copy_badge_alt_label: String,
     /// Show the full agentgrep tool output inline in the transcript instead of
@@ -1118,6 +1124,7 @@ impl Default for DisplayConfig {
             redraw_fps: 60,
             prompt_preview: true,
             compact_notifications: false,
+            typing_scroll_lock: false,
             copy_badge_alt_label: String::new(),
             show_agentgrep_output: false,
             tool_call_details: false,
