@@ -54,9 +54,9 @@ pub fn terminal_session_label(session_name: &str, display_title: Option<&str>) -
 }
 
 /// Shorten a session working directory for window-title display: paths under
-/// the home directory keep their full path with the home prefix shown as `~`
-/// (e.g. `/home/u/git/doraji` becomes `~/git/doraji`, the home directory
-/// itself becomes `~`); other paths are shown as-is.
+/// the home directory are shown relative to it (e.g. `/home/u/git/beni-hana`
+/// becomes `git/beni-hana`, the home directory itself becomes `~`); other
+/// paths are shown as-is.
 pub fn compact_working_dir_label(working_dir: &str) -> Option<String> {
     let trimmed = working_dir.trim();
     if trimmed.is_empty() {
@@ -68,9 +68,9 @@ pub fn compact_working_dir_label(working_dir: &str) -> Option<String> {
             return Some("~".to_string());
         }
         if let Ok(relative) = path.strip_prefix(&home) {
-            let relative = relative.to_string_lossy();
-            if !relative.is_empty() {
-                return Some(format!("~/{relative}"));
+            let label = relative.to_string_lossy().to_string();
+            if !label.is_empty() {
+                return Some(label);
             }
         }
     }
@@ -78,7 +78,7 @@ pub fn compact_working_dir_label(working_dir: &str) -> Option<String> {
 }
 
 /// Resolve the working-directory label for a session by id (e.g.
-/// `~/git/beni-hana`), used as the terminal window title when the session has no
+/// `git/beni-hana`), used as the terminal window title when the session has no
 /// human-authored title yet.
 pub fn terminal_working_dir_label_for_id(session_id: &str) -> Option<String> {
     crate::session::Session::load_startup_stub(session_id)
@@ -128,7 +128,7 @@ pub fn terminal_window_title(
 
 /// Resolve the title shown in terminal window chrome for a session. An
 /// explicit rename wins, then the session's working directory (e.g.
-/// `~/git/beni-hana`), then the todo/goal-derived title, then the generated
+/// `git/beni-hana`), then the todo/goal-derived title, then the generated
 /// session title.
 pub fn terminal_window_display_title_for_id(session_id: &str) -> Option<String> {
     let stub = crate::session::Session::load_startup_stub(session_id).ok();
@@ -215,7 +215,7 @@ mod tests {
         let repo = home.join("git").join("beni-hana");
         assert_eq!(
             compact_working_dir_label(&repo.to_string_lossy()),
-            Some("~/git/beni-hana".to_string())
+            Some("git/beni-hana".to_string())
         );
         assert_eq!(
             compact_working_dir_label(&home.to_string_lossy()),
@@ -252,7 +252,7 @@ mod tests {
 
         assert_eq!(
             terminal_window_display_title_for_id(session_id),
-            Some("~/git/beni-hana".to_string())
+            Some("git/beni-hana".to_string())
         );
 
         // An explicit rename still wins over the working directory.
