@@ -514,6 +514,54 @@ pub fn format_binding(binding: &KeyBinding) -> String {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn user_config_prompt_bindings_route_to_prompt_jump() {
+        // Mirror ~/.jcode/config.toml: scroll_prompt_up/down = ctrl+shift+u / ctrl+shift+i
+        let up = parse_keybinding("ctrl+shift+u").unwrap();
+        let down = parse_keybinding("ctrl+shift+i").unwrap();
+        let keys = ScrollKeys {
+            up: parse_keybinding("ctrl+shift+k").unwrap(),
+            down: parse_keybinding("ctrl+shift+j").unwrap(),
+            up_fallback: None,
+            down_fallback: None,
+            page_up: parse_keybinding("alt+u").unwrap(),
+            page_down: parse_keybinding("alt+d").unwrap(),
+            prompt_up: up,
+            prompt_down: down,
+            bookmark: parse_keybinding("ctrl+g").unwrap(),
+        };
+        // Kitty-protocol encoding (uppercase + CTRL|SHIFT) must hit prompt_jump...
+        assert_eq!(
+            keys.prompt_jump(
+                KeyCode::Char('U'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
+            Some(-1)
+        );
+        assert_eq!(
+            keys.prompt_jump(
+                KeyCode::Char('I'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
+            Some(1)
+        );
+        // ...and not be swallowed by the scroll handler first.
+        assert_eq!(
+            keys.scroll_amount(
+                KeyCode::Char('U'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
+            None
+        );
+        assert_eq!(
+            keys.scroll_amount(
+                KeyCode::Char('I'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn ctrl_shift_u_and_i_parse_for_prompt_jump() {
         let up = parse_keybinding("ctrl+shift+u").expect("ctrl+shift+u parses");
         assert_eq!(up.code, KeyCode::Char('u'));
