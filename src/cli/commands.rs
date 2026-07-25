@@ -2151,6 +2151,20 @@ pub async fn run_server_reload_command(force: bool, emit_json: bool) -> Result<(
 
     let mut client = crate::server::Client::connect().await?;
 
+    // The server requires a Subscribe (with working_dir) before any stateful
+    // request, including Reload. Subscribe as a plain observer client first.
+    let subscribe_id = client.subscribe().await?;
+    loop {
+        match client.read_event().await {
+            Ok(ServerEvent::Ack { id }) if id == subscribe_id => break,
+            Ok(ServerEvent::Error { id, message, .. }) if id == subscribe_id => {
+                anyhow::bail!("server reload failed during subscribe: {message}");
+            }
+            Ok(_) => {}
+            Err(e) => return Err(e),
+        }
+    }
+
     // Before asking the (possibly older) daemon to reload, repair a stale
     // `shared-server` channel from the client side. The running server resolves
     // its reload target from that channel; if it still points at the server's
