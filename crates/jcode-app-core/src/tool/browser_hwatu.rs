@@ -426,8 +426,24 @@ async fn execute_hwatu_action(action: &str, input: &BrowserInput) -> Result<Tool
                 .tab_id
                 .or(input.window_id)
                 .context("tab_id is required for select_tab")?;
-            ipc(json!({"cmd": "focus", "id": id})).await?;
-            Ok(ToolOutput::new(format!("Focused window {}", id)).with_title(title))
+            // Selecting a tab is a *targeting* operation: subsequent
+            // id-less calls should address this window. It must not
+            // present the window, hwatu `focus` promotes headless
+            // windows to visible and would pop the agent's page over
+            // the user's desktop. Verify it exists, then pin it.
+            let windows = list_windows().await?;
+            let exists = windows
+                .iter()
+                .any(|w| w.get("id").and_then(|v| v.as_i64()) == Some(id));
+            if !exists {
+                anyhow::bail!("no window {id}");
+            }
+            SESSION_WINDOW.store(id, Ordering::Relaxed);
+            Ok(ToolOutput::new(format!(
+                "Selected window {id} as the session target (not focused; use \
+                 the hwatu `focus` action only to show a window to the user)"
+            ))
+            .with_title(title))
         }
         "snapshot" | "get_content" => {
             let format = if action == "snapshot" {
