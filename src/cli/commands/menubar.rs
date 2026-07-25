@@ -81,7 +81,7 @@ pub(crate) fn format_menubar_summary(counts: SessionCounts) -> String {
 /// display title explains the work. Do not repeat the generated animal name.
 #[cfg(any(test, target_os = "macos"))]
 pub(crate) fn format_session_menu_item_title(session_id: &str, streaming: bool) -> String {
-    let display_title = crate::process_title::terminal_window_display_title_for_id(session_id);
+    let display_title = crate::process_title::terminal_display_title_for_id(session_id);
     format_session_menu_item_title_with_display(session_id, display_title.as_deref(), streaming)
 }
 

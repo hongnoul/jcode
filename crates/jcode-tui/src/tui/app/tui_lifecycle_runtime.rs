@@ -73,32 +73,17 @@ impl App {
             .unwrap_or_else(|| session_id.to_string());
         let session_icon = crate::id::session_icon(&session_name);
         // Keep the live terminal title aligned with /resume: an explicit rename
-        // wins, then the session's working directory (e.g. git/beni-hana), then
-        // the model's current todo/goal title, then the generated title.
-        let working_dir_label = self
+        // wins, then the model's current todo/goal title, then the generated title.
+        let todo_title = self
             .session
             .custom_title
             .is_none()
-            .then(|| {
-                self.session
-                    .working_dir
-                    .as_deref()
-                    .and_then(crate::process_title::compact_working_dir_label)
-                    .or_else(|| {
-                        // Remote clients may not carry working_dir in the local
-                        // session copy; the session file lives on this host.
-                        crate::process_title::terminal_working_dir_label_for_id(session_id)
-                    })
-            })
-            .flatten();
-        let todo_title = (self.session.custom_title.is_none() && working_dir_label.is_none())
             .then(|| crate::todo::load_session_title(session_id))
             .flatten();
         let display_title = self
             .session
             .custom_title
             .as_deref()
-            .or(working_dir_label.as_deref())
             .or(todo_title.as_deref())
             .or(self.session.title.as_deref());
         let is_canary = if self.is_remote {

@@ -53,41 +53,6 @@ pub fn terminal_session_label(session_name: &str, display_title: Option<&str>) -
     format!("{} ({})", truncate_chars(&title, 48), session_name)
 }
 
-/// Shorten a session working directory for window-title display: paths under
-/// the home directory are shown relative to it (e.g. `/home/u/git/beni-hana`
-/// becomes `git/beni-hana`, the home directory itself becomes `~`); other
-/// paths are shown as-is.
-pub fn compact_working_dir_label(working_dir: &str) -> Option<String> {
-    let trimmed = working_dir.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let path = std::path::Path::new(trimmed);
-    if let Some(home) = dirs::home_dir() {
-        if path == home {
-            return Some("~".to_string());
-        }
-        if let Ok(relative) = path.strip_prefix(&home) {
-            let label = relative.to_string_lossy().to_string();
-            if !label.is_empty() {
-                return Some(label);
-            }
-        }
-    }
-    Some(trimmed.to_string())
-}
-
-/// Resolve the working-directory label for a session by id (e.g.
-/// `git/beni-hana`), used as the terminal window title when the session has no
-/// human-authored title yet.
-pub fn terminal_working_dir_label_for_id(session_id: &str) -> Option<String> {
-    crate::session::Session::load_startup_stub(session_id)
-        .ok()
-        .and_then(|session| session.working_dir)
-        .as_deref()
-        .and_then(compact_working_dir_label)
-}
-
 /// Resolve the human-authored title used by terminal windows and `/resume`.
 /// Explicit renames win over todo/goal-derived titles, which win over the
 /// generated session title.
@@ -124,28 +89,6 @@ pub fn terminal_window_title(
         },
     };
     crate::output_style::terminal_text(&title).into_owned()
-}
-
-/// Resolve the title shown in terminal window chrome for a session. An
-/// explicit rename wins, then the session's working directory (e.g.
-/// `git/beni-hana`), then the todo/goal-derived title, then the generated
-/// session title.
-pub fn terminal_window_display_title_for_id(session_id: &str) -> Option<String> {
-    let stub = crate::session::Session::load_startup_stub(session_id).ok();
-    let (custom_title, generated_title, working_dir) = match stub {
-        Some(session) => (
-            session
-                .custom_title
-                .filter(|title| !title.trim().is_empty()),
-            session.title,
-            session.working_dir,
-        ),
-        None => (None, None, None),
-    };
-    custom_title
-        .or_else(|| working_dir.as_deref().and_then(compact_working_dir_label))
-        .or_else(|| crate::todo::load_session_title(session_id))
-        .or(generated_title)
 }
 
 pub fn terminal_session_label_for_id(session_id: &str) -> String {
@@ -208,68 +151,6 @@ pub fn set_client_remote_display_title(server_name: &str, session_name: &str, is
 mod tests {
     use super::*;
     use crate::storage::lock_test_env;
-
-    #[test]
-    fn compact_working_dir_label_strips_home_prefix() {
-        let home = dirs::home_dir().expect("home dir");
-        let repo = home.join("git").join("beni-hana");
-        assert_eq!(
-            compact_working_dir_label(&repo.to_string_lossy()),
-            Some("git/beni-hana".to_string())
-        );
-        assert_eq!(
-            compact_working_dir_label(&home.to_string_lossy()),
-            Some("~".to_string())
-        );
-        assert_eq!(
-            compact_working_dir_label("/srv/deploy"),
-            Some("/srv/deploy".to_string())
-        );
-        assert_eq!(compact_working_dir_label("   "), None);
-    }
-
-    #[test]
-    fn terminal_window_display_title_prefers_working_dir_over_generated_title() {
-        let _guard = lock_test_env();
-        let previous_home = std::env::var_os("JCODE_HOME");
-        let temp = tempfile::tempdir().expect("temp dir");
-        crate::env::set_var("JCODE_HOME", temp.path());
-
-        let session_id = "session_fox_789";
-        let mut session = crate::session::Session::create_with_id(
-            session_id.to_string(),
-            None,
-            Some("Generated title".to_string()),
-        );
-        session.working_dir = Some(
-            dirs::home_dir()
-                .expect("home dir")
-                .join("git/beni-hana")
-                .to_string_lossy()
-                .to_string(),
-        );
-        session.save().expect("save session");
-
-        assert_eq!(
-            terminal_window_display_title_for_id(session_id),
-            Some("git/beni-hana".to_string())
-        );
-
-        // An explicit rename still wins over the working directory.
-        let mut session = crate::session::Session::load(session_id).expect("load session");
-        session.rename_title(Some("Release planning".to_string()));
-        session.save().expect("save session");
-        assert_eq!(
-            terminal_window_display_title_for_id(session_id),
-            Some("Release planning".to_string())
-        );
-
-        if let Some(previous_home) = previous_home {
-            crate::env::set_var("JCODE_HOME", previous_home);
-        } else {
-            crate::env::remove_var("JCODE_HOME");
-        }
-    }
 
     #[test]
     fn terminal_session_label_includes_custom_title_and_short_name() {
