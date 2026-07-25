@@ -16,9 +16,9 @@
 pub use crate::storage::{SessionUiState, SessionUiStatus, read_session_ui_status};
 
 /// Display title for a session as shown in terminal window chrome, resolved
-/// from disk (rename > working dir > todo/goal title > generated title).
+/// from disk (rename > todo/goal title > generated title).
 fn status_title(session_id: &str) -> Option<String> {
-    crate::process_title::terminal_window_display_title_for_id(session_id)
+    crate::process_title::terminal_display_title_for_id(session_id)
 }
 
 /// Idle state derived from the session's on-disk todo list: waiting only when
