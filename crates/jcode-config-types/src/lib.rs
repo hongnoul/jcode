@@ -585,10 +585,40 @@ pub struct AgentsConfig {
     /// Env override: `JCODE_SWARM_MAX_CONCURRENT_AGENTS`.
     #[serde(default = "default_swarm_max_concurrent_agents")]
     pub swarm_max_concurrent_agents: usize,
+    /// Node count at which recursive deep-graph growth starts spending credits
+    /// earned by completed work. Seeded independent work is exempt.
+    #[serde(default = "default_swarm_graph_soft_limit")]
+    pub swarm_graph_soft_limit: usize,
+    /// Configurable emergency ceiling for one durable swarm graph. Clamped to
+    /// Jcode's absolute compile-time safety ceiling.
+    #[serde(default = "default_swarm_graph_hard_limit")]
+    pub swarm_graph_hard_limit: usize,
+    /// Maximum children accepted from one expand/inject operation.
+    #[serde(default = "default_swarm_graph_max_fanout")]
+    pub swarm_graph_max_fanout: usize,
+    /// Maximum recursive parent depth accepted for machinery-grown nodes.
+    #[serde(default = "default_swarm_graph_max_depth")]
+    pub swarm_graph_max_depth: usize,
 }
 
 fn default_swarm_max_concurrent_agents() -> usize {
     32
+}
+
+fn default_swarm_graph_soft_limit() -> usize {
+    256
+}
+
+fn default_swarm_graph_hard_limit() -> usize {
+    4096
+}
+
+fn default_swarm_graph_max_fanout() -> usize {
+    64
+}
+
+fn default_swarm_graph_max_depth() -> usize {
+    8
 }
 
 fn default_memory_embedding_backend() -> String {
@@ -628,6 +658,10 @@ impl Default for AgentsConfig {
             memory_embedding_base_url: None,
             memory_embedding_dim: None,
             swarm_max_concurrent_agents: default_swarm_max_concurrent_agents(),
+            swarm_graph_soft_limit: default_swarm_graph_soft_limit(),
+            swarm_graph_hard_limit: default_swarm_graph_hard_limit(),
+            swarm_graph_max_fanout: default_swarm_graph_max_fanout(),
+            swarm_graph_max_depth: default_swarm_graph_max_depth(),
         }
     }
 }

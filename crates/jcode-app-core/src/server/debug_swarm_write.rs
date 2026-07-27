@@ -394,11 +394,15 @@ pub(super) async fn maybe_handle_swarm_write_command(
                                 .or_insert_with(VersionedPlan::new);
                             let merged_count =
                                 versioned_plan.items.len().saturating_add(items.len());
-                            if merged_count > jcode_plan::MAX_PLAN_ITEMS {
+                            let configured_hard_limit = crate::config::config()
+                                .agents
+                                .swarm_graph_hard_limit
+                                .clamp(1, jcode_plan::MAX_PLAN_ITEMS);
+                            if merged_count > configured_hard_limit {
                                 return Err(anyhow::anyhow!(
                                     "Plan approval would contain {} items, exceeding the per-swarm limit of {}",
                                     merged_count,
-                                    jcode_plan::MAX_PLAN_ITEMS
+                                    configured_hard_limit
                                 ));
                             }
                             versioned_plan.items.extend(items.clone());

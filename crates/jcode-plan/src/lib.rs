@@ -6,7 +6,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 /// expand, inject, and approve calls can retain and broadcast thousands of
 /// stale nodes forever. This is four times the live swarm-member cap and well
 /// above normal deep graphs while bounding server, disk, and per-client state.
-pub const MAX_PLAN_ITEMS: usize = 1024;
+/// Absolute emergency ceiling. Runtime configuration normally imposes the
+/// lower adaptive hard limit; this only bounds corrupt/misconfigured clients.
+pub const MAX_PLAN_ITEMS: usize = 16_384;
 
 pub mod bridge;
 pub mod dag;

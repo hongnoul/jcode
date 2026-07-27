@@ -1608,6 +1608,24 @@ fn format_status_snapshot(snapshot: &AgentStatusSnapshot) -> ToolOutput {
 
 fn format_plan_status(summary: &PlanGraphStatus) -> ToolOutput {
     let mut output = format_comm_plan_status(summary);
+    let graph_cfg = &crate::config::config().agents;
+    let hard = graph_cfg
+        .swarm_graph_hard_limit
+        .clamp(1, jcode_plan::MAX_PLAN_ITEMS);
+    let pressure = if summary.item_count <= graph_cfg.swarm_graph_soft_limit {
+        "free-growth"
+    } else {
+        "credit-gated"
+    };
+    output.push_str(&format!(
+        "  Adaptive growth: {pressure}; total {} / soft {} / hard {}; seeded {}, machinery-grown {}, completed {}. Recursive growth above soft spends weighted completion credits (implement/fix 8, verify 4, synthesize 2, explore 1, gates 0).\n",
+        summary.item_count,
+        graph_cfg.swarm_graph_soft_limit,
+        hard,
+        summary.seeded_count,
+        summary.grown_count,
+        summary.completed_ids.len(),
+    ));
     if let Some(budget_line) = plan_status_budget_line(
         summary,
         crate::config::config().agents.swarm_max_concurrent_agents,

@@ -369,6 +369,13 @@ swarm_spawn_mode = "inline"
 # per-swarm hard cap of 1000. Light mode uses a smaller fixed fan-out.
 # Env override: JCODE_SWARM_MAX_CONCURRENT_AGENTS
 swarm_max_concurrent_agents = 32
+# Adaptive deep-graph growth: recursive expansion gets 256 free nodes, then
+# earns more capacity by completing useful work. Independent seed nodes may
+# grow directly to the hard ceiling.
+swarm_graph_soft_limit = 256
+swarm_graph_hard_limit = 4096
+swarm_graph_max_fanout = 64
+swarm_graph_max_depth = 8
 #
 # Max percentage (1-90) of the chat height the inline swarm gallery band may use.
 # Unset = built-in default (40%). Lower values keep more transcript visible; set

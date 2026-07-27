@@ -51,6 +51,24 @@ fn swarm_max_concurrent_agents_defaults_to_safe_live_worker_budget() {
 }
 
 #[test]
+fn adaptive_swarm_graph_budget_has_conservative_defaults_and_parses() {
+    let defaults = Config::default().agents;
+    assert_eq!(defaults.swarm_graph_soft_limit, 256);
+    assert_eq!(defaults.swarm_graph_hard_limit, 4096);
+    assert_eq!(defaults.swarm_graph_max_fanout, 64);
+    assert_eq!(defaults.swarm_graph_max_depth, 8);
+
+    let cfg: Config = toml::from_str(
+        "[agents]\nswarm_graph_soft_limit = 512\nswarm_graph_hard_limit = 8192\nswarm_graph_max_fanout = 128\nswarm_graph_max_depth = 12\n",
+    )
+    .expect("adaptive graph settings should parse");
+    assert_eq!(cfg.agents.swarm_graph_soft_limit, 512);
+    assert_eq!(cfg.agents.swarm_graph_hard_limit, 8192);
+    assert_eq!(cfg.agents.swarm_graph_max_fanout, 128);
+    assert_eq!(cfg.agents.swarm_graph_max_depth, 12);
+}
+
+#[test]
 fn mermaid_feature_defaults_on_and_parses_false() {
     assert!(Config::default().features.mermaid);
 

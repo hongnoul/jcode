@@ -396,14 +396,18 @@ pub(super) async fn handle_comm_approve_plan(
             .map(|plan| plan.items.len())
             .unwrap_or_default();
         let merged_count = existing_count.saturating_add(items.len());
-        if merged_count > jcode_plan::MAX_PLAN_ITEMS {
+        let configured_hard_limit = crate::config::config()
+            .agents
+            .swarm_graph_hard_limit
+            .clamp(1, jcode_plan::MAX_PLAN_ITEMS);
+        if merged_count > configured_hard_limit {
             finish_request(
                 swarm_mutation_runtime,
                 &mutation_state,
                 PersistedSwarmMutationResponse::Error {
                     message: format!(
                         "Plan approval would contain {merged_count} items, exceeding the per-swarm limit of {}; finish or clear stale plan nodes first.",
-                        jcode_plan::MAX_PLAN_ITEMS
+                        configured_hard_limit
                     ),
                     retry_after_secs: None,
                 },

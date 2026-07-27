@@ -16,7 +16,7 @@ use crate::protocol::ServerEvent;
 use crate::protocol::TaskGraphNodeSpec;
 use jcode_plan::MAX_PLAN_ITEMS;
 use jcode_plan::bridge::{apply_task_graph, parse_kind, to_task_graph};
-use jcode_plan::dag::{self, HandoffArtifact, NodeSpec, NodeStatus, TaskGraph};
+use jcode_plan::dag::{self, HandoffArtifact, NodeKind, NodeSpec, NodeStatus, TaskGraph};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -32,14 +32,195 @@ fn spec_from_wire(spec: TaskGraphNodeSpec) -> NodeSpec {
     }
 }
 
-fn graph_size_error(graph: &TaskGraph) -> Option<String> {
-    (graph.len() > MAX_PLAN_ITEMS).then(|| {
-        format!(
-            "plan would contain {} items, exceeding the per-swarm limit of {}; finish or clear stale plan nodes before adding more",
-            graph.len(),
-            MAX_PLAN_ITEMS
-        )
-    })
+#[derive(Debug, Clone, Copy)]
+struct GraphGrowthConfig {
+    soft_limit: usize,
+    hard_limit: usize,
+    max_fanout: usize,
+    max_depth: usize,
+}
+
+impl GraphGrowthConfig {
+    fn current() -> Self {
+        let cfg = &crate::config::config().agents;
+        Self {
+            soft_limit: cfg.swarm_graph_soft_limit.max(1),
+            hard_limit: cfg.swarm_graph_hard_limit.clamp(1, MAX_PLAN_ITEMS),
+            max_fanout: cfg.swarm_graph_max_fanout.max(1),
+            max_depth: cfg.swarm_graph_max_depth.max(1),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GraphGrowthHealth {
+    total: usize,
+    soft_limit: usize,
+    adaptive_limit: usize,
+    hard_limit: usize,
+    completed: usize,
+    useful_credits: usize,
+    grown: usize,
+    max_depth: usize,
+}
+
+fn useful_completion_credit(kind: NodeKind) -> usize {
+    match kind {
+        NodeKind::Implement | NodeKind::Fix => 8,
+        NodeKind::Verify => 4,
+        NodeKind::Synthesize => 2,
+        NodeKind::Explore => 1,
+        NodeKind::Critique => 0,
+    }
+}
+
+fn node_depth(graph: &TaskGraph, node_id: &str) -> usize {
+    let mut depth = 0usize;
+    let mut cursor = graph.get(node_id).and_then(|node| node.parent.as_deref());
+    // A cycle is rejected by the DAG engine. The bound is defensive for legacy
+    // or corrupted persisted state and keeps diagnostics total.
+    while let Some(parent) = cursor {
+        depth += 1;
+        if depth > graph.len() {
+            break;
+        }
+        cursor = graph.get(parent).and_then(|node| node.parent.as_deref());
+    }
+    depth
+}
+
+fn graph_growth_health(graph: &TaskGraph, cfg: GraphGrowthConfig) -> GraphGrowthHealth {
+    let completed = graph.nodes().iter().filter(|node| node.is_done()).count();
+    let useful_credits = graph
+        .nodes()
+        .iter()
+        .filter(|node| node.is_done() && !node.is_gate)
+        .map(|node| useful_completion_credit(node.kind))
+        .sum::<usize>();
+    let grown = graph
+        .nodes()
+        .iter()
+        .filter(|node| {
+            node.origin
+                .is_some_and(|origin| origin != jcode_plan::dag::NodeOrigin::Seed)
+        })
+        .count();
+    let max_depth = graph
+        .nodes()
+        .iter()
+        .map(|node| node_depth(graph, &node.id))
+        .max()
+        .unwrap_or(0);
+    GraphGrowthHealth {
+        total: graph.len(),
+        soft_limit: cfg.soft_limit,
+        adaptive_limit: cfg
+            .soft_limit
+            .saturating_add(useful_credits)
+            .min(cfg.hard_limit),
+        hard_limit: cfg.hard_limit,
+        completed,
+        useful_credits,
+        grown,
+        max_depth,
+    }
+}
+
+fn normalized_task(content: &str) -> String {
+    content
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn duplicate_new_nodes(before: &TaskGraph, after: &TaskGraph) -> usize {
+    let existing_ids = before
+        .nodes()
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect::<HashSet<_>>();
+    let mut seen = before
+        .nodes()
+        .iter()
+        .map(|node| normalized_task(&node.content))
+        .collect::<HashSet<_>>();
+    let mut duplicates = 0;
+    for node in after
+        .nodes()
+        .iter()
+        .filter(|node| !existing_ids.contains(node.id.as_str()))
+    {
+        if !seen.insert(normalized_task(&node.content)) {
+            duplicates += 1;
+        }
+    }
+    duplicates
+}
+
+/// Admission policy for machinery-grown deep graphs. Independent seed batches
+/// may use the configured hard ceiling directly; recursive expansion must earn
+/// capacity by completing useful work. This is intentional hysteresis: every
+/// accepted completion permanently raises the current plan's budget, while a
+/// stalled audit tree cannot oscillate itself back into an allowed state.
+fn graph_growth_error(
+    before: &TaskGraph,
+    after: &TaskGraph,
+    requested_fanout: usize,
+    is_seed: bool,
+    cfg: GraphGrowthConfig,
+) -> Option<String> {
+    let health = graph_growth_health(after, cfg);
+    if health.total > MAX_PLAN_ITEMS {
+        return Some(format!(
+            "plan would contain {} items, exceeding Jcode's absolute emergency ceiling of {}",
+            health.total, MAX_PLAN_ITEMS
+        ));
+    }
+    if health.total > health.hard_limit {
+        return Some(format!(
+            "plan would contain {} items, exceeding configured agents.swarm_graph_hard_limit={}; raise that setting only when the workload is genuinely independent",
+            health.total, health.hard_limit
+        ));
+    }
+    if is_seed || !matches!(after.mode, jcode_plan::dag::Mode::Deep) {
+        return None;
+    }
+    if requested_fanout > cfg.max_fanout {
+        return Some(format!(
+            "adaptive growth throttled: requested fan-out {requested_fanout} exceeds agents.swarm_graph_max_fanout={}; split only after the current wave completes",
+            cfg.max_fanout
+        ));
+    }
+    if health.max_depth > cfg.max_depth {
+        return Some(format!(
+            "adaptive growth throttled: recursive depth {} exceeds agents.swarm_graph_max_depth={}; finish or flatten existing work instead of decomposing again",
+            health.max_depth, cfg.max_depth
+        ));
+    }
+    if health.total > health.soft_limit {
+        let new_count = after.len().saturating_sub(before.len());
+        let duplicate_count = duplicate_new_nodes(before, after);
+        if new_count >= 2 && duplicate_count * 2 >= new_count {
+            return Some(format!(
+                "adaptive growth throttled: {duplicate_count} of {new_count} new nodes duplicate existing task descriptions; reuse or complete existing nodes"
+            ));
+        }
+        if health.total > health.adaptive_limit {
+            return Some(format!(
+                "adaptive growth throttled: graph health total={} grown={} completed={} useful_credits={} allows {} nodes (soft={} hard={}); complete implementation/fix/verification work to earn capacity before expanding again",
+                health.total,
+                health.grown,
+                health.completed,
+                health.useful_credits,
+                health.adaptive_limit,
+                health.soft_limit,
+                health.hard_limit,
+            ));
+        }
+    }
+    None
 }
 
 async fn swarm_id_for(
@@ -294,16 +475,19 @@ pub(super) async fn handle_comm_seed_graph(
         let mut graph = to_task_graph(plan);
         let before = graph.clone();
         match dag::seed(&mut graph, specs) {
-            Ok(()) => match graph_size_error(&graph) {
-                Some(message) => Err(message),
-                None => {
-                    if graph != before {
-                        apply_task_graph(plan, &graph);
-                        plan.version += 1;
+            Ok(()) => {
+                match graph_growth_error(&before, &graph, count, true, GraphGrowthConfig::current())
+                {
+                    Some(message) => Err(message),
+                    None => {
+                        if graph != before {
+                            apply_task_graph(plan, &graph);
+                            plan.version += 1;
+                        }
+                        Ok(())
                     }
-                    Ok(())
                 }
-            },
+            }
             Err(e) => Err(e.to_string()),
         }
     };
@@ -364,9 +548,16 @@ pub(super) async fn handle_comm_expand_node(
             return;
         };
         let mut graph = to_task_graph(plan);
+        let before = graph.clone();
         claim_queued_node_for_actor(&mut graph, &node_id, &req_session_id);
         match dag::expand_node(&mut graph, &node_id, &req_session_id, specs) {
-            Ok(_) => match graph_size_error(&graph) {
+            Ok(_) => match graph_growth_error(
+                &before,
+                &graph,
+                count,
+                false,
+                GraphGrowthConfig::current(),
+            ) {
                 Some(message) => Err(message),
                 None => {
                     apply_task_graph(plan, &graph);
@@ -507,9 +698,16 @@ pub(super) async fn handle_comm_inject_gap(
             return;
         };
         let mut graph = to_task_graph(plan);
+        let before = graph.clone();
         claim_queued_node_for_actor(&mut graph, &gate_id, &req_session_id);
         match dag::inject_from_gate(&mut graph, &gate_id, &req_session_id, specs) {
-            Ok(_) => match graph_size_error(&graph) {
+            Ok(_) => match graph_growth_error(
+                &before,
+                &graph,
+                count,
+                false,
+                GraphGrowthConfig::current(),
+            ) {
                 Some(message) => Err(message),
                 None => {
                     apply_task_graph(plan, &graph);
@@ -541,5 +739,175 @@ pub(super) async fn handle_comm_inject_gap(
             .await;
         }
         Err(e) => err(client_event_tx, id, format!("Inject rejected: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod growth_tests {
+    use super::*;
+    use jcode_plan::dag::{Mode, NodeOrigin, TaskNode};
+
+    fn cfg() -> GraphGrowthConfig {
+        GraphGrowthConfig {
+            soft_limit: 4,
+            hard_limit: 32,
+            max_fanout: 8,
+            max_depth: 4,
+        }
+    }
+
+    fn node(id: &str, kind: NodeKind, status: NodeStatus, origin: NodeOrigin) -> TaskNode {
+        TaskNode {
+            id: id.to_string(),
+            content: format!("{kind:?} task {id}"),
+            kind,
+            status,
+            owner: None,
+            parent: None,
+            depends_on: Vec::new(),
+            expanded: false,
+            is_gate: matches!(kind, NodeKind::Critique),
+            planner: None,
+            priority: 100,
+            output: None,
+            origin: Some(origin),
+        }
+    }
+
+    fn graph(nodes: Vec<TaskNode>) -> TaskGraph {
+        let mut graph = TaskGraph::new(Mode::Deep);
+        for node in nodes {
+            graph.push_node(node);
+        }
+        graph
+    }
+
+    #[test]
+    fn recursive_audit_growth_stalls_without_useful_completions() {
+        let before = graph(
+            (0..4)
+                .map(|i| {
+                    node(
+                        &format!("seed-{i}"),
+                        NodeKind::Explore,
+                        NodeStatus::Queued,
+                        NodeOrigin::Seed,
+                    )
+                })
+                .collect(),
+        );
+        let mut after = before.clone();
+        after.push_node(node(
+            "audit-a",
+            NodeKind::Explore,
+            NodeStatus::Queued,
+            NodeOrigin::Expand,
+        ));
+        after.push_node(node(
+            "audit-b",
+            NodeKind::Critique,
+            NodeStatus::Queued,
+            NodeOrigin::Gate,
+        ));
+
+        let error = graph_growth_error(&before, &after, 2, false, cfg())
+            .expect("unproductive recursive growth should throttle");
+        assert!(error.contains("useful_credits=0"), "{error}");
+        assert!(error.contains("allows 4 nodes"), "{error}");
+    }
+
+    #[test]
+    fn implementation_completions_earn_capacity_past_soft_limit() {
+        let before = graph(vec![
+            node(
+                "impl-a",
+                NodeKind::Implement,
+                NodeStatus::Done,
+                NodeOrigin::Seed,
+            ),
+            node("impl-b", NodeKind::Fix, NodeStatus::Done, NodeOrigin::Seed),
+            node(
+                "seed-c",
+                NodeKind::Explore,
+                NodeStatus::Queued,
+                NodeOrigin::Seed,
+            ),
+            node(
+                "seed-d",
+                NodeKind::Explore,
+                NodeStatus::Queued,
+                NodeOrigin::Seed,
+            ),
+        ]);
+        let mut after = before.clone();
+        for i in 0..8 {
+            after.push_node(node(
+                &format!("productive-{i}"),
+                NodeKind::Implement,
+                NodeStatus::Queued,
+                NodeOrigin::Expand,
+            ));
+        }
+
+        assert_eq!(graph_growth_health(&after, cfg()).adaptive_limit, 20);
+        assert!(graph_growth_error(&before, &after, 8, false, cfg()).is_none());
+    }
+
+    #[test]
+    fn large_independent_seed_can_exceed_soft_limit() {
+        let before = graph(Vec::new());
+        let after = graph(
+            (0..20)
+                .map(|i| {
+                    node(
+                        &format!("independent-{i}"),
+                        NodeKind::Implement,
+                        NodeStatus::Queued,
+                        NodeOrigin::Seed,
+                    )
+                })
+                .collect(),
+        );
+
+        assert!(graph_growth_error(&before, &after, 20, true, cfg()).is_none());
+    }
+
+    #[test]
+    fn duplicate_recursive_wave_is_rejected_even_with_credits() {
+        let before = graph(vec![
+            node(
+                "impl",
+                NodeKind::Implement,
+                NodeStatus::Done,
+                NodeOrigin::Seed,
+            ),
+            node("a", NodeKind::Explore, NodeStatus::Queued, NodeOrigin::Seed),
+            node("b", NodeKind::Explore, NodeStatus::Queued, NodeOrigin::Seed),
+            node("c", NodeKind::Explore, NodeStatus::Queued, NodeOrigin::Seed),
+        ]);
+        let mut after = before.clone();
+        let mut first = node(
+            "dup-1",
+            NodeKind::Explore,
+            NodeStatus::Queued,
+            NodeOrigin::Expand,
+        );
+        first.content = "audit the same subsystem".to_string();
+        let mut second = node(
+            "dup-2",
+            NodeKind::Explore,
+            NodeStatus::Queued,
+            NodeOrigin::Expand,
+        );
+        second.content = "Audit, the same subsystem!".to_string();
+        after.push_node(first);
+        after.push_node(second);
+
+        let error = graph_growth_error(&before, &after, 2, false, cfg())
+            .expect("duplicate wave should throttle");
+        assert!(
+            error.contains("duplicate existing task descriptions"),
+            "{error}"
+        );
     }
 }
