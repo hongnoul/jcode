@@ -560,8 +560,10 @@ pub(crate) struct VisibleCopyTarget {
 }
 
 // Copy badges intentionally avoid h/j/k/l so they never shadow vi-style
-// movement keys while the user is scanning visible actions.
-const COPY_BADGE_KEYS: [char; 12] = ['s', 'd', 'f', 'g', 'w', 'e', 'r', 't', 'x', 'c', 'v', 'b'];
+// movement keys while the user is scanning visible actions. Avoid `f` too:
+// Alt+Shift+F is commonly reserved for fullscreen/window management by the
+// compositor, so advertising it as a copy shortcut can make the badge inert.
+const COPY_BADGE_KEYS: [char; 12] = ['s', 'd', 'a', 'g', 'w', 'e', 'r', 't', 'x', 'c', 'v', 'b'];
 
 #[cfg(not(test))]
 static VISIBLE_COPY_TARGETS: OnceLock<Mutex<Vec<VisibleCopyTarget>>> = OnceLock::new();

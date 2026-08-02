@@ -25,6 +25,12 @@ fn parse_changelog_from_supports_timestamped_entries() {
 }
 
 #[test]
+fn copy_badges_never_advertise_alt_shift_f() {
+    assert!(!COPY_BADGE_KEYS.contains(&'f'));
+    assert_eq!(COPY_BADGE_KEYS[2], 'a');
+}
+
+#[test]
 fn group_changelog_entries_includes_release_times() {
     let entries = vec![
         ChangelogEntry {
