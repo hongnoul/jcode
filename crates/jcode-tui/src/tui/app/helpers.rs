@@ -117,7 +117,68 @@ pub(crate) fn open_path_or_url_detached(
             "opening files/URLs is suppressed (NO_BROWSER/JCODE_NO_BROWSER or test harness)",
         ));
     }
+
+    // The TUI only reaches this helper in response to an explicit user action
+    // (link click, OAuth prompt, open-report command, and so on). Preserve that
+    // intent across the system opener. Agent-aware browsers such as hwatu can
+    // then distinguish a human click from an automated browser-tool launch,
+    // even though both inherit JCODE_* environment variables.
+    #[cfg(target_os = "linux")]
+    {
+        let mut last_err = None;
+        for mut command in user_open_commands(target) {
+            command
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            match command.spawn() {
+                Ok(mut child) => {
+                    // Dropping an exited child without waiting leaves a zombie
+                    // while the TUI remains alive. Reap it off the UI thread;
+                    // dropping the JoinHandle intentionally detaches the reaper.
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                    });
+                    return Ok(());
+                }
+                Err(err) => last_err = Some(err),
+            }
+        }
+        return Err(last_err.expect("open crate always provides at least one Linux launcher"));
+    }
+
+    #[cfg(not(target_os = "linux"))]
     open::that_detached(target)
+}
+
+#[cfg(target_os = "linux")]
+fn user_open_commands(target: impl AsRef<std::ffi::OsStr>) -> Vec<std::process::Command> {
+    open::commands(target)
+        .into_iter()
+        .map(|mut command| {
+            command.env("JCODE_OPEN_ORIGIN", "user");
+            command
+        })
+        .collect()
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod user_open_tests {
+    use super::user_open_commands;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn opener_commands_carry_user_origin() {
+        let commands = user_open_commands("https://example.com");
+        assert!(!commands.is_empty());
+        for command in commands {
+            let origin = command
+                .get_envs()
+                .find(|(key, _)| *key == OsStr::new("JCODE_OPEN_ORIGIN"))
+                .and_then(|(_, value)| value);
+            assert_eq!(origin, Some(OsStr::new("user")));
+        }
+    }
 }
 
 /// Test-only: snapshot `(elapsed_secs, refreshing)` for a session's todos cache
