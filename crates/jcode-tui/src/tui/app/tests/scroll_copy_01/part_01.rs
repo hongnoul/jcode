@@ -824,14 +824,14 @@ fn test_local_alt_s_toggles_typing_scroll_lock() {
         .unwrap();
     assert_eq!(
         app.status_notice(),
-        Some("Typing scroll lock: ON - typing stays at current chat position".to_string())
+        Some("Typing scroll lock: OFF - typing follows chat bottom".to_string())
     );
 
     app.handle_key(KeyCode::Char('s'), KeyModifiers::ALT)
         .unwrap();
     assert_eq!(
         app.status_notice(),
-        Some("Typing scroll lock: OFF - typing follows chat bottom".to_string())
+        Some("Typing scroll lock: ON - typing stays at current chat position".to_string())
     );
 }
 
@@ -930,15 +930,10 @@ fn test_remote_alt_m_toggles_side_panel_visibility() {
 #[test]
 fn test_remote_typing_scroll_lock_preserves_scroll_position() {
     let mut app = create_test_app();
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let _guard = rt.enter();
-    let mut remote = crate::tui::backend::RemoteConnection::dummy();
 
     app.scroll_offset = 7;
     app.auto_scroll_paused = true;
 
-    rt.block_on(app.handle_remote_key(KeyCode::Char('s'), KeyModifiers::ALT, &mut remote))
-        .unwrap();
     app.handle_remote_char_input('x');
 
     assert_eq!(app.input, "x");
@@ -956,8 +951,6 @@ fn test_local_typing_scroll_lock_preserves_scroll_position() {
     app.scroll_offset = 7;
     app.auto_scroll_paused = true;
 
-    app.handle_key(KeyCode::Char('s'), KeyModifiers::ALT)
-        .unwrap();
     app.handle_key(KeyCode::Char('x'), KeyModifiers::empty())
         .unwrap();
 
@@ -980,8 +973,6 @@ fn test_remote_typing_scroll_lock_can_be_toggled_back_off() {
     app.scroll_offset = 7;
     app.auto_scroll_paused = true;
 
-    rt.block_on(app.handle_remote_key(KeyCode::Char('s'), KeyModifiers::ALT, &mut remote))
-        .unwrap();
     rt.block_on(app.handle_remote_key(KeyCode::Char('s'), KeyModifiers::ALT, &mut remote))
         .unwrap();
     app.handle_remote_char_input('x');

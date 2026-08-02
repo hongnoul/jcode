@@ -2,6 +2,8 @@ use super::state_ui::RestoredReloadInput;
 use super::*;
 use crate::tui::{backend, keybind};
 
+const TYPING_SCROLL_LOCK_DEFAULT: bool = true;
+
 impl App {
     pub(super) fn apply_restored_reload_input(&mut self, restored: RestoredReloadInput) {
         self.input = restored.input;
@@ -657,7 +659,7 @@ impl App {
             dictation_request_id: None,
             dictation_target_session_id: None,
             scroll_bookmark: None,
-            typing_scroll_lock: false,
+            typing_scroll_lock: TYPING_SCROLL_LOCK_DEFAULT,
             stashed_input: None,
             input_undo_stack: Vec::new(),
             status_notice: None,
@@ -1096,7 +1098,7 @@ impl App {
             dictation_request_id: None,
             dictation_target_session_id: None,
             scroll_bookmark: None,
-            typing_scroll_lock: false,
+            typing_scroll_lock: TYPING_SCROLL_LOCK_DEFAULT,
             stashed_input: None,
             input_undo_stack: Vec::new(),
             status_notice: None,
