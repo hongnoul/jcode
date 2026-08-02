@@ -380,6 +380,20 @@ impl ScrollKeys {
 
     /// Check if a key matches prompt jump (returns direction: -1 = prev, 1 = next)
     pub fn prompt_jump(&self, code: KeyCode, modifiers: KeyModifiers) -> Option<i8> {
+        // Keep the U/I prompt navigation available even when this long-lived
+        // process still has an older config snapshot. Accept both the active
+        // Ctrl+Shift chords and their Ctrl+Alt aliases: U moves forward to the
+        // next prompt; I moves back to the previous prompt.
+        let ctrl_shift = KeyModifiers::CONTROL | KeyModifiers::SHIFT;
+        let ctrl_alt = KeyModifiers::CONTROL | KeyModifiers::ALT;
+        if modifiers == ctrl_shift || modifiers == ctrl_alt {
+            match code {
+                KeyCode::Char('u') | KeyCode::Char('U') => return Some(1),
+                KeyCode::Char('i') | KeyCode::Char('I') => return Some(-1),
+                _ => {}
+            }
+        }
+
         if self.prompt_up.matches(code, modifiers) {
             return Some(-1);
         }
@@ -789,6 +803,22 @@ mod tests {
             keys.prompt_jump(KeyCode::Char('j'), KeyModifiers::CONTROL),
             Some(1)
         );
+    }
+
+    #[test]
+    fn test_prompt_jump_ctrl_shift_and_alt_ui_use_requested_directions() {
+        let keys = test_scroll_keys();
+        for modifiers in [
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ] {
+            for code in [KeyCode::Char('u'), KeyCode::Char('U')] {
+                assert_eq!(keys.prompt_jump(code, modifiers), Some(1));
+            }
+            for code in [KeyCode::Char('i'), KeyCode::Char('I')] {
+                assert_eq!(keys.prompt_jump(code, modifiers), Some(-1));
+            }
+        }
     }
 
     #[test]
