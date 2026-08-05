@@ -507,7 +507,12 @@ pub async fn run_live_openai_compatible_tool_smoke(
         ],
         "stream": false
     });
-    set_output_token_cap(&mut body, &resolved, 256);
+    // Reasoning models (e.g. Meta's Muse Spark) burn hidden reasoning tokens
+    // before emitting the tool call; a 256-token cap ends the completion at
+    // `finish_reason: length` with no tool calls at all. 1,024 leaves room for
+    // reasoning plus the call, and stays a positive multiple of 256 (Celeris'
+    // constraint).
+    set_output_token_cap(&mut body, &resolved, 1_024);
     if !resolved.api_base.contains("fptcloud.com") {
         body["tool_choice"] = serde_json::json!("auto");
     }
