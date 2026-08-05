@@ -512,6 +512,20 @@ mod tests {
     }
 
     #[test]
+    fn muse_spark_family_resolves_to_one_million_context() {
+        // Meta Model API serves Muse Spark with a 1,048,576-token window.
+        assert_eq!(
+            open_weight_family_context_limit("muse-spark-1.2"),
+            Some(1_048_576)
+        );
+        assert_eq!(
+            open_weight_family_context_limit("muse-spark-1.1"),
+            Some(1_048_576)
+        );
+        assert_eq!(context_limit_for_model("muse-spark-1.2"), Some(1_048_576));
+    }
+
+    #[test]
     fn context_limit_handles_claude_1m_aliases() {
         assert_eq!(
             context_limit_for_model_with_provider("claude-opus-4-6[1m]", Some("claude")),

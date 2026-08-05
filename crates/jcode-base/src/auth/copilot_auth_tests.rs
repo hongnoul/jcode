@@ -266,6 +266,18 @@ fn save_github_token_makes_future_loads_available() -> Result<()> {
     let dir = TempDir::new().map_err(|e| anyhow!(e))?;
     let prev_jcode_home = std::env::var_os("JCODE_HOME");
     let prev_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+    // Ambient GitHub tokens (common in dev shells and CI) win over the
+    // persisted fixture inside load_github_token(), so clear them for the
+    // duration of the test.
+    let token_env_keys = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"];
+    let prev_tokens: Vec<Option<std::ffi::OsString>> = token_env_keys
+        .iter()
+        .map(|key| {
+            let prev = std::env::var_os(key);
+            crate::env::remove_var(key);
+            prev
+        })
+        .collect();
 
     crate::env::set_var("JCODE_HOME", dir.path());
     crate::env::remove_var("XDG_CONFIG_HOME");
@@ -279,7 +291,15 @@ fn save_github_token_makes_future_loads_available() -> Result<()> {
             &hosts_path
         )
     );
-    assert_eq!(load_github_token()?, "gho_persisted_token");
+    let loaded = load_github_token();
+
+    for (key, prev) in token_env_keys.iter().zip(prev_tokens) {
+        if let Some(prev) = prev {
+            crate::env::set_var(key, prev);
+        } else {
+            crate::env::remove_var(key);
+        }
+    }
 
     if let Some(prev) = prev_jcode_home {
         crate::env::set_var("JCODE_HOME", prev);
@@ -292,6 +312,8 @@ fn save_github_token_makes_future_loads_available() -> Result<()> {
     } else {
         crate::env::remove_var("XDG_CONFIG_HOME");
     }
+
+    assert_eq!(loaded?, "gho_persisted_token");
     Ok(())
 }
 
