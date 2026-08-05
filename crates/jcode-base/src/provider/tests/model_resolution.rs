@@ -2335,3 +2335,45 @@ fn bare_openai_compatible_model_id_routes_to_its_profile_not_the_active_provider
         );
     });
 }
+
+/// Meta Muse (Meta Model API) static models must route to the `meta-muse`
+/// profile even when another provider is active, exactly like the Celeris
+/// regression above. Guards the static-model fallback plus the bare-id
+/// profile routing for `muse-spark-*` ids.
+#[test]
+fn bare_meta_muse_model_id_routes_to_meta_muse_profile() {
+    with_clean_provider_test_env(|| {
+        let rt = enter_test_runtime();
+        let _runtime_guard = rt.enter();
+        crate::env::set_var("META_MUSE_API_KEY", "test-meta-muse-key");
+        let provider = MultiProvider {
+            claude: RwLock::new(None),
+            anthropic: RwLock::new(None),
+            openai: RwLock::new(None),
+            copilot_api: RwLock::new(None),
+            antigravity: RwLock::new(None),
+            gemini: RwLock::new(None),
+            cursor: RwLock::new(None),
+            bedrock: RwLock::new(None),
+            openrouter: RwLock::new(None),
+            openai_compatible_profiles: RwLock::new(std::collections::HashMap::new()),
+            active_openai_compatible_profile: RwLock::new(None),
+            active: RwLock::new(ActiveProvider::Claude),
+            use_claude_cli: false,
+            startup_notices: RwLock::new(Vec::new()),
+            initial_provider: None,
+            routes_memo: std::sync::Mutex::new(None),
+            post_auth_refreshes_pending: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        };
+
+        provider
+            .set_model("muse-spark-1.2")
+            .expect("bare Meta Muse model id should resolve to the meta-muse profile");
+        assert_eq!(provider.model(), "muse-spark-1.2");
+        assert_eq!(provider.active_provider(), ActiveProvider::OpenRouter);
+        assert_eq!(
+            provider.fork_model_switch_request(provider.active_provider(), &provider.model()),
+            "meta-muse:muse-spark-1.2"
+        );
+    });
+}
