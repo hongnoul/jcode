@@ -489,6 +489,13 @@ pub fn openai_compatible_profile_static_models(profile: OpenAiCompatibleProfile)
         "celeris" => {
             push("celeris-1");
         }
+        // Meta Model API serves the Muse Spark family; keep the documented ids
+        // selectable immediately after saving a key, before the live catalog
+        // refresh completes.
+        "meta-muse" => {
+            push("muse-spark-1.2");
+            push("muse-spark-1.1");
+        }
         "xiaomi-mimo" => {
             push("mimo-v2.5");
             push("mimo-v2.5-pro");

@@ -421,6 +421,18 @@ pub const CELERIS_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfile {
     requires_api_key: true,
 };
 
+pub const META_MUSE_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfile {
+    id: "meta-muse",
+    display_name: "Meta Muse",
+    // Meta Model API: OpenAI-compatible endpoint serving the Muse Spark family.
+    api_base: "https://api.meta.ai/v1",
+    api_key_env: "META_MUSE_API_KEY",
+    env_file: "meta-muse.env",
+    setup_url: "https://dev.meta.ai/docs/getting-started/overview",
+    default_model: Some("muse-spark-1.2"),
+    requires_api_key: true,
+};
+
 pub const OPENAI_COMPAT_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfile {
     id: "openai-compatible",
     display_name: "OpenAI-compatible",
@@ -432,7 +444,7 @@ pub const OPENAI_COMPAT_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfi
     requires_api_key: true,
 };
 
-pub(crate) const OPENAI_COMPAT_PROFILES: [OpenAiCompatibleProfile; 37] = [
+pub(crate) const OPENAI_COMPAT_PROFILES: [OpenAiCompatibleProfile; 38] = [
     OPENCODE_PROFILE,
     OPENCODE_GO_PROFILE,
     ZAI_PROFILE,
@@ -467,6 +479,7 @@ pub(crate) const OPENAI_COMPAT_PROFILES: [OpenAiCompatibleProfile; 37] = [
     NVIDIA_NIM_PROFILE,
     XIAOMI_MIMO_PROFILE,
     CELERIS_PROFILE,
+    META_MUSE_PROFILE,
     LMSTUDIO_PROFILE,
     OLLAMA_PROFILE,
     OPENAI_COMPAT_PROFILE,
@@ -1099,6 +1112,19 @@ pub const CELERIS_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescrip
     order: LoginProviderSurfaceOrder::new(Some(38), Some(38), Some(38), Some(38), Some(38)),
 };
 
+pub const META_MUSE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
+    id: "meta-muse",
+    display_name: "Meta Muse",
+    auth_kind: LoginProviderAuthKind::ApiKey,
+    auth_state_key: LoginProviderAuthStateKey::OpenRouterLike,
+    auth_status_method: "API key",
+    aliases: &["meta", "muse", "muse-spark", "meta-model-api", "meta-ai"],
+    menu_detail: "OpenAI-compatible Meta Model API (Muse Spark)",
+    recommended: false,
+    target: LoginProviderTarget::OpenAiCompatible(META_MUSE_PROFILE),
+    order: LoginProviderSurfaceOrder::new(Some(39), Some(39), Some(39), Some(39), Some(39)),
+};
+
 pub const GOOGLE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
     id: "google",
     display_name: "Google/Gmail",
@@ -1112,7 +1138,7 @@ pub const GOOGLE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescript
     order: LoginProviderSurfaceOrder::new(Some(13), None, None, None, None),
 };
 
-pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 48] = [
+pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 49] = [
     AUTO_IMPORT_LOGIN_PROVIDER,
     CLAUDE_LOGIN_PROVIDER,
     ANTHROPIC_API_LOGIN_PROVIDER,
@@ -1152,6 +1178,7 @@ pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 48] = [
     NVIDIA_NIM_LOGIN_PROVIDER,
     XIAOMI_MIMO_LOGIN_PROVIDER,
     CELERIS_LOGIN_PROVIDER,
+    META_MUSE_LOGIN_PROVIDER,
     LMSTUDIO_LOGIN_PROVIDER,
     OLLAMA_LOGIN_PROVIDER,
     OPENAI_COMPAT_LOGIN_PROVIDER,
