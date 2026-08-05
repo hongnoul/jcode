@@ -885,9 +885,28 @@ async fn install_extension() -> Result<String> {
 
     #[cfg(target_os = "linux")]
     {
-        let _ = tokio::process::Command::new("xdg-open")
-            .arg(&xpi_url)
-            .spawn();
+        // Open the XPI with Firefox directly instead of `xdg-open`: `.xpi`
+        // mime-resolves to `application/zip`, so xdg-open hands it to whatever
+        // owns zip files (archive managers, or even Prism Launcher), which
+        // silently breaks the install prompt and confusingly launches an
+        // unrelated app. Fall back to xdg-open only when no Firefox-family
+        // binary is available.
+        let mut opened = false;
+        for browser in ["firefox", "librewolf", "firefox-esr"] {
+            if tokio::process::Command::new(browser)
+                .arg(&xpi_url)
+                .spawn()
+                .is_ok()
+            {
+                opened = true;
+                break;
+            }
+        }
+        if !opened {
+            let _ = tokio::process::Command::new("xdg-open")
+                .arg(&xpi_url)
+                .spawn();
+        }
     }
     #[cfg(target_os = "macos")]
     {
