@@ -903,9 +903,17 @@ async fn install_extension() -> Result<String> {
             }
         }
         if !opened {
-            let _ = tokio::process::Command::new("xdg-open")
-                .arg(&xpi_url)
-                .spawn();
+            // No Firefox-family browser available. Do NOT fall back to
+            // xdg-open: `.xpi` mime-resolves to `application/zip`, so the
+            // default zip handler (archive manager, or even Prism Launcher)
+            // opens instead, which confuses the user and cannot install the
+            // extension anyway.
+            return Err(anyhow::anyhow!(
+                "no Firefox-family browser found (tried firefox, librewolf, firefox-esr); \
+                 install one and re-run `jcode browser setup`, or install the extension \
+                 manually via about:addons > Install Add-on From File > {}",
+                xpi.display()
+            ));
         }
     }
     #[cfg(target_os = "macos")]
