@@ -78,6 +78,10 @@ impl App {
     /// Maximum accumulated scroll momentum. Slightly above the original so a fast
     /// flick still glides a touch, without long runaway momentum.
     const MOUSE_SCROLL_MAX_QUEUE: i16 = 30;
+    /// Keyboard repeat should stay responsive without leaving a long coast
+    /// after the user lets go. At the default 60fps this is at most 200ms of
+    /// queued one-row frames, and normal key repeat drains as fast as it fills.
+    const KEYBOARD_SCROLL_MAX_QUEUE: i16 = 12;
     /// How long the overscroll status line stays revealed after the last
     /// downward overscroll tick before it rebounds away. Long enough that the
     /// depleting countdown indicator is perceivable and the line reads as a
@@ -633,10 +637,13 @@ impl App {
         let trace_scroll = tui_mouse_scroll_trace_enabled();
         let before_queue = self.mouse_scroll_queue;
         let before_target = self.mouse_scroll_target;
-        if self.mouse_scroll_target != Some(target) {
+        if self.mouse_scroll_target != Some(target)
+            || self.scroll_animation_source != Some(ScrollAnimationSource::Mouse)
+        {
             self.mouse_scroll_target = Some(target);
             self.mouse_scroll_queue = 0;
         }
+        self.scroll_animation_source = Some(ScrollAnimationSource::Mouse);
 
         // Velocity-based acceleration: infer how hard the wheel was flicked from
         // the gap since the previous wheel event (the terminal does not report a
@@ -685,16 +692,47 @@ impl App {
             return;
         }
 
-        if self.mouse_scroll_target != Some(target) {
+        if self.mouse_scroll_target != Some(target)
+            || self.scroll_animation_source != Some(ScrollAnimationSource::Native)
+        {
             self.mouse_scroll_target = Some(target);
             self.mouse_scroll_queue = 0;
         }
+        self.scroll_animation_source = Some(ScrollAnimationSource::Native);
 
         let delta = delta.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
         self.mouse_scroll_queue = self
             .mouse_scroll_queue
             .saturating_add(delta)
             .clamp(-Self::MOUSE_SCROLL_MAX_QUEUE, Self::MOUSE_SCROLL_MAX_QUEUE);
+        self.drain_mouse_scroll_animation(1);
+    }
+
+    /// Animate one incremental keyboard-scroll impulse without delaying its
+    /// first visible response. Ctrl+Shift+J/K currently request three rows, so
+    /// the first row lands now and the remaining two land on successive redraw
+    /// ticks. Reversing direction discards stale travel before moving, avoiding
+    /// the "key feels ignored" lag common to naive momentum queues.
+    pub(super) fn enqueue_keyboard_scroll(&mut self, delta: i32) {
+        if delta == 0 {
+            return;
+        }
+
+        let delta = delta.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        let direction = delta.signum();
+        let keyboard_owns_queue = self.mouse_scroll_target == Some(MouseScrollTarget::Chat)
+            && self.scroll_animation_source == Some(ScrollAnimationSource::Keyboard);
+        if !keyboard_owns_queue {
+            self.mouse_scroll_target = Some(MouseScrollTarget::Chat);
+            self.mouse_scroll_queue = 0;
+        } else if self.mouse_scroll_queue != 0 && self.mouse_scroll_queue.signum() != direction {
+            self.mouse_scroll_queue = 0;
+        }
+        self.scroll_animation_source = Some(ScrollAnimationSource::Keyboard);
+        self.mouse_scroll_queue = self.mouse_scroll_queue.saturating_add(delta).clamp(
+            -Self::KEYBOARD_SCROLL_MAX_QUEUE,
+            Self::KEYBOARD_SCROLL_MAX_QUEUE,
+        );
         self.drain_mouse_scroll_animation(1);
     }
 
@@ -715,6 +753,9 @@ impl App {
     }
 
     pub(super) fn mouse_scroll_drain_amount(&self) -> usize {
+        if self.scroll_animation_source == Some(ScrollAnimationSource::Keyboard) {
+            return 1;
+        }
         // Gentle ease-out: drain a few lines per frame for a fresh flick,
         // decelerating to one line as the queue empties. Kept close to the
         // original feel so momentum does not glide far.
@@ -732,11 +773,13 @@ impl App {
     fn drain_mouse_scroll_animation(&mut self, max_steps: usize) {
         let Some(target) = self.mouse_scroll_target else {
             self.mouse_scroll_queue = 0;
+            self.scroll_animation_source = None;
             return;
         };
         if self.mouse_scroll_queue == 0 || max_steps == 0 {
             if self.mouse_scroll_queue == 0 {
                 self.mouse_scroll_target = None;
+                self.scroll_animation_source = None;
             }
             return;
         }
@@ -750,6 +793,7 @@ impl App {
             if !self.apply_mouse_scroll_step(target, direction) {
                 self.mouse_scroll_queue = 0;
                 self.mouse_scroll_target = None;
+                self.scroll_animation_source = None;
                 if let Some(before) = before.as_ref() {
                     crate::logging::event_info(
                         "TUI_MOUSE_SCROLL_DRAIN",
@@ -772,6 +816,7 @@ impl App {
         self.mouse_scroll_queue -= direction * steps as i16;
         if self.mouse_scroll_queue == 0 {
             self.mouse_scroll_target = None;
+            self.scroll_animation_source = None;
         }
         if let Some(before) = before.as_ref() {
             crate::logging::event_info(

@@ -666,6 +666,84 @@ fn test_momentum_drain_decelerates_to_one_line() {
 }
 
 #[test]
+fn test_incremental_keyboard_scroll_animates_three_rows_across_frames() {
+    let _render_lock = scroll_render_test_lock();
+    let (mut app, mut terminal) = create_scroll_test_app(100, 30, 1, 30);
+    render_and_snap(&app, &mut terminal);
+    let (up_code, up_mods) = scroll_up_key(&app);
+
+    app.handle_key(up_code, up_mods).unwrap();
+    let after_press = app.scroll_offset;
+    assert_eq!(
+        app.mouse_scroll_queue, -2,
+        "one row should move immediately and two should remain animated"
+    );
+    assert_eq!(
+        app.scroll_animation_source,
+        Some(super::ScrollAnimationSource::Keyboard)
+    );
+
+    app.progress_mouse_scroll_animation();
+    assert_eq!(app.scroll_offset, after_press.saturating_sub(1));
+    assert_eq!(app.mouse_scroll_queue, -1);
+
+    app.progress_mouse_scroll_animation();
+    assert_eq!(app.scroll_offset, after_press.saturating_sub(2));
+    assert_eq!(app.mouse_scroll_queue, 0);
+    assert!(app.mouse_scroll_target.is_none());
+    assert!(app.scroll_animation_source.is_none());
+}
+
+#[test]
+fn test_keyboard_scroll_backlog_still_drains_one_row_per_frame() {
+    let mut app = create_test_app();
+    app.mouse_scroll_queue = 12;
+    app.scroll_animation_source = Some(super::ScrollAnimationSource::Keyboard);
+
+    assert_eq!(
+        app.mouse_scroll_drain_amount(),
+        1,
+        "held-key repeat must not regress into multi-row frame jumps"
+    );
+}
+
+#[test]
+fn test_keyboard_scroll_reversal_discards_stale_direction_immediately() {
+    let _render_lock = scroll_render_test_lock();
+    let (mut app, mut terminal) = create_scroll_test_app(100, 30, 1, 40);
+    render_and_snap(&app, &mut terminal);
+
+    // Start away from the tail so both directions can move without clamping.
+    app.scroll_up(10);
+    let starting_offset = app.scroll_offset;
+    app.enqueue_keyboard_scroll(-3);
+    assert_eq!(app.scroll_offset, starting_offset.saturating_sub(1));
+    assert_eq!(app.mouse_scroll_queue, -2);
+
+    app.enqueue_keyboard_scroll(3);
+    assert_eq!(
+        app.scroll_offset, starting_offset,
+        "the first opposite-direction row should land immediately"
+    );
+    assert_eq!(
+        app.mouse_scroll_queue, 2,
+        "old upward travel must be replaced, not paid down before reversing"
+    );
+}
+
+#[test]
+fn test_page_scroll_remains_immediate() {
+    let _render_lock = scroll_render_test_lock();
+    let (mut app, mut terminal) = create_scroll_test_app(100, 30, 1, 40);
+    render_and_snap(&app, &mut terminal);
+
+    super::input::apply_scroll_key_amount(&mut app, -10);
+
+    assert_eq!(app.mouse_scroll_queue, 0);
+    assert!(app.scroll_animation_source.is_none());
+}
+
+#[test]
 fn test_queued_wheel_down_at_bottom_does_not_accumulate_phantom_scroll() {
     // Touchpad/mouse momentum can queue many downward wheel steps. If they keep
     // "succeeding" against the already-pinned bottom, the queue (or offset) would

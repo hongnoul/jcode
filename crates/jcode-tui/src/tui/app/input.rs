@@ -13,6 +13,7 @@ use crate::util::truncate_str;
 use anyhow::Result;
 use base64::Engine;
 use crossterm::event::{EventStream, KeyCode, KeyEvent, KeyModifiers};
+use jcode_tui_core::keybind::LINE_SCROLL_AMOUNT;
 use ratatui::DefaultTerminal;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -1950,11 +1951,7 @@ pub(super) fn handle_navigation_shortcuts(
     modifiers: KeyModifiers,
 ) -> bool {
     if let Some(amount) = app.scroll_keys.scroll_amount(code, modifiers) {
-        if amount < 0 {
-            app.scroll_up((-amount) as usize);
-        } else {
-            app.scroll_down(amount as usize);
-        }
+        apply_scroll_key_amount(app, amount);
         return true;
     }
 
@@ -1993,6 +1990,23 @@ pub(super) fn handle_navigation_shortcuts(
     }
 
     false
+}
+
+/// Apply a resolved scroll binding consistently across local, remote, and
+/// disconnected clients. Incremental J/K movement is animated; page movement
+/// remains an immediate jump so navigation never feels artificially delayed.
+pub(super) fn apply_scroll_key_amount(app: &mut App, amount: i32) {
+    let animation_enabled = !matches!(
+        crate::perf::tui_policy().tier,
+        crate::perf::PerformanceTier::Minimal
+    );
+    if animation_enabled && amount.unsigned_abs() == LINE_SCROLL_AMOUNT.unsigned_abs() {
+        app.enqueue_keyboard_scroll(amount);
+    } else if amount < 0 {
+        app.scroll_up((-amount) as usize);
+    } else {
+        app.scroll_down(amount as usize);
+    }
 }
 
 pub(super) fn is_scroll_only_key(app: &App, code: KeyCode, modifiers: KeyModifiers) -> bool {

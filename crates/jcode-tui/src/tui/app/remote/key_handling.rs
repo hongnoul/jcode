@@ -541,11 +541,7 @@ async fn handle_remote_key_internal(
     }
 
     if let Some(amount) = app.scroll_keys.scroll_amount(code, modifiers) {
-        if amount < 0 {
-            app.scroll_up((-amount) as usize);
-        } else {
-            app.scroll_down(amount as usize);
-        }
+        input::apply_scroll_key_amount(app, amount);
         return Ok(());
     }
 
