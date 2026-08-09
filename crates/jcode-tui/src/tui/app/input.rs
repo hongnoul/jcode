@@ -13,7 +13,6 @@ use crate::util::truncate_str;
 use anyhow::Result;
 use base64::Engine;
 use crossterm::event::{EventStream, KeyCode, KeyEvent, KeyModifiers};
-use jcode_tui_core::keybind::LINE_SCROLL_AMOUNT;
 use ratatui::DefaultTerminal;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -1993,16 +1992,11 @@ pub(super) fn handle_navigation_shortcuts(
 }
 
 /// Apply a resolved scroll binding consistently across local, remote, and
-/// disconnected clients. Incremental J/K movement is animated; page movement
-/// remains an immediate jump so navigation never feels artificially delayed.
+/// disconnected clients. Keyboard scrolling is deliberately synchronous so
+/// the full configured distance lands on the key event without queued input.
 pub(super) fn apply_scroll_key_amount(app: &mut App, amount: i32) {
-    let animation_enabled = !matches!(
-        crate::perf::tui_policy().tier,
-        crate::perf::PerformanceTier::Minimal
-    );
-    if animation_enabled && amount.unsigned_abs() == LINE_SCROLL_AMOUNT.unsigned_abs() {
-        app.enqueue_keyboard_scroll(amount);
-    } else if amount < 0 {
+    app.cancel_scroll_animation();
+    if amount < 0 {
         app.scroll_up((-amount) as usize);
     } else {
         app.scroll_down(amount as usize);

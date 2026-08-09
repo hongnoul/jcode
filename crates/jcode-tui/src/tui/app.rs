@@ -601,7 +601,6 @@ pub(super) enum MouseScrollTarget {
 pub(super) enum ScrollAnimationSource {
     Mouse,
     Native,
-    Keyboard,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1583,9 +1582,8 @@ pub struct App {
     mouse_scroll_target: Option<MouseScrollTarget>,
     /// Remaining queued mouse-wheel lines. Positive = down, negative = up.
     mouse_scroll_queue: i16,
-    /// Input source that owns the current queue. Keyboard impulses drain one
-    /// row per frame, while wheel/native motion keeps its velocity-sensitive
-    /// drain rate.
+    /// Input source that owns the current queue, keeping native row deltas from
+    /// inheriting velocity-sensitive wheel momentum (and vice versa).
     scroll_animation_source: Option<ScrollAnimationSource>,
     /// When the user overscrolls past the bottom of the transcript, an extra
     /// status line is revealed below the input. This records the last time an
