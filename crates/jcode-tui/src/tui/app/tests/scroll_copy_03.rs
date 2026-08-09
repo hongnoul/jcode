@@ -714,6 +714,59 @@ fn test_replay_keyboard_scroll_applies_full_distance_without_queueing() {
 }
 
 #[test]
+fn test_remote_keyboard_scroll_applies_full_distance_without_queueing() {
+    let _render_lock = scroll_render_test_lock();
+    let (mut app, mut terminal) = create_scroll_test_app(100, 30, 1, 30);
+    render_and_snap(&app, &mut terminal);
+    let (up_code, up_mods) = scroll_up_key(&app);
+    let (down_code, down_mods) = scroll_down_key(&app);
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = rt.enter();
+    let mut remote = crate::tui::backend::RemoteConnection::dummy();
+
+    app.scroll_up(10);
+    let starting_offset = app.scroll_offset;
+    app.mouse_scroll_target = Some(super::MouseScrollTarget::Chat);
+    app.mouse_scroll_queue = 2;
+    app.scroll_animation_source = Some(super::ScrollAnimationSource::Native);
+
+    rt.block_on(app.handle_remote_key(up_code, up_mods, &mut remote))
+        .unwrap();
+    assert_eq!(app.scroll_offset, starting_offset.saturating_sub(3));
+    assert_eq!(app.mouse_scroll_queue, 0);
+    assert!(app.mouse_scroll_target.is_none());
+
+    rt.block_on(app.handle_remote_key(down_code, down_mods, &mut remote))
+        .unwrap();
+    assert_eq!(app.scroll_offset, starting_offset);
+    assert_eq!(app.mouse_scroll_queue, 0);
+}
+
+#[test]
+fn test_disconnected_keyboard_scroll_applies_full_distance_without_queueing() {
+    let _render_lock = scroll_render_test_lock();
+    let (mut app, mut terminal) = create_scroll_test_app(100, 30, 1, 30);
+    render_and_snap(&app, &mut terminal);
+    let (up_code, up_mods) = scroll_up_key(&app);
+    let (down_code, down_mods) = scroll_down_key(&app);
+
+    app.scroll_up(10);
+    let starting_offset = app.scroll_offset;
+    app.mouse_scroll_target = Some(super::MouseScrollTarget::Chat);
+    app.mouse_scroll_queue = -2;
+    app.scroll_animation_source = Some(super::ScrollAnimationSource::Mouse);
+
+    super::remote::handle_disconnected_key(&mut app, up_code, up_mods).unwrap();
+    assert_eq!(app.scroll_offset, starting_offset.saturating_sub(3));
+    assert_eq!(app.mouse_scroll_queue, 0);
+    assert!(app.mouse_scroll_target.is_none());
+
+    super::remote::handle_disconnected_key(&mut app, down_code, down_mods).unwrap();
+    assert_eq!(app.scroll_offset, starting_offset);
+    assert_eq!(app.mouse_scroll_queue, 0);
+}
+
+#[test]
 fn test_page_scroll_remains_immediate() {
     let _render_lock = scroll_render_test_lock();
     let (mut app, mut terminal) = create_scroll_test_app(100, 30, 1, 40);
