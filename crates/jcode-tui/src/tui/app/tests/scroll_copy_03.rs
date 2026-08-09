@@ -695,6 +695,26 @@ fn test_incremental_keyboard_scroll_animates_three_rows_across_frames() {
 }
 
 #[test]
+fn test_replay_keyboard_scroll_uses_incremental_animation() {
+    let _render_lock = scroll_render_test_lock();
+    let (mut app, mut terminal) = create_scroll_test_app(100, 30, 1, 30);
+    render_and_snap(&app, &mut terminal);
+    let (up_code, up_mods) = scroll_up_key(&app);
+
+    assert!(super::replay::apply_replay_scroll_key(
+        &mut app, up_code, up_mods
+    ));
+    assert_eq!(
+        app.mouse_scroll_queue, -2,
+        "replay should move one row immediately and queue the remaining two"
+    );
+    assert_eq!(
+        app.scroll_animation_source,
+        Some(super::ScrollAnimationSource::Keyboard)
+    );
+}
+
+#[test]
 fn test_keyboard_scroll_backlog_still_drains_one_row_per_frame() {
     let mut app = create_test_app();
     app.mouse_scroll_queue = 12;

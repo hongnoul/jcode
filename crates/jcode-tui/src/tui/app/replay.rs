@@ -203,13 +203,7 @@ fn handle_replay_input(
                 *replay_speed = (*replay_speed / 1.5).max(0.1);
             }
             _ => {
-                if let Some(amount) = app.scroll_keys.scroll_amount(key.code, key.modifiers) {
-                    if amount < 0 {
-                        app.scroll_up((-amount) as usize);
-                    } else {
-                        app.scroll_down(amount as usize);
-                    }
-                }
+                apply_replay_scroll_key(app, key.code, key.modifiers);
             }
         },
         Event::Mouse(mouse) => {
@@ -218,6 +212,18 @@ fn handle_replay_input(
         Event::Resize(_, _) => {}
         _ => {}
     }
+}
+
+pub(super) fn apply_replay_scroll_key(
+    app: &mut App,
+    code: KeyCode,
+    modifiers: KeyModifiers,
+) -> bool {
+    let Some(amount) = app.scroll_keys.scroll_amount(code, modifiers) else {
+        return false;
+    };
+    super::input::apply_scroll_key_amount(app, amount);
+    true
 }
 
 fn handle_swarm_replay_input(
