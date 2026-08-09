@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 
-pub const LINE_SCROLL_AMOUNT: i32 = 3;
+pub const LINE_SCROLL_AMOUNT: i32 = 5;
 
 /// The macOS keycap for the Option/Alt modifier. Mac keyboards have no key
 /// labelled "Alt", so hints must show `⌥` there instead.
@@ -714,17 +714,17 @@ mod tests {
     }
 
     #[test]
-    fn test_line_scroll_keys_scroll_three_lines() {
+    fn test_line_scroll_keys_scroll_five_lines() {
         let keys = test_scroll_keys();
 
-        assert_eq!(LINE_SCROLL_AMOUNT, 3);
+        assert_eq!(LINE_SCROLL_AMOUNT, 5);
         assert_eq!(
             keys.scroll_amount(KeyCode::Char('k'), KeyModifiers::ALT),
-            Some(-3)
+            Some(-5)
         );
         assert_eq!(
             keys.scroll_amount(KeyCode::Char('j'), KeyModifiers::ALT),
-            Some(3)
+            Some(5)
         );
     }
 

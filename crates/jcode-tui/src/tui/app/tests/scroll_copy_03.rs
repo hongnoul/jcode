@@ -672,7 +672,7 @@ fn test_keyboard_scroll_applies_full_distance_without_queueing() {
     render_and_snap(&app, &mut terminal);
     let (up_code, up_mods) = scroll_up_key(&app);
 
-    // Start away from the tail so the exact three-row delta is observable.
+    // Start away from the tail so the exact five-row delta is observable.
     app.scroll_up(10);
     let before_press = app.scroll_offset;
     app.mouse_scroll_target = Some(super::MouseScrollTarget::Chat);
@@ -682,8 +682,8 @@ fn test_keyboard_scroll_applies_full_distance_without_queueing() {
     app.handle_key(up_code, up_mods).unwrap();
     assert_eq!(
         app.scroll_offset,
-        before_press.saturating_sub(3),
-        "the full three-row fast scroll should land on the key event"
+        before_press.saturating_sub(5),
+        "the full five-row fast scroll should land on the key event"
     );
     assert_eq!(app.mouse_scroll_queue, 0);
     assert!(app.mouse_scroll_target.is_none());
@@ -705,7 +705,7 @@ fn test_replay_keyboard_scroll_applies_full_distance_without_queueing() {
     ));
     assert_eq!(
         app.scroll_offset,
-        before_press.saturating_sub(3),
+        before_press.saturating_sub(5),
         "replay should use the same immediate fast-scroll path"
     );
     assert_eq!(app.mouse_scroll_queue, 0);
@@ -732,7 +732,7 @@ fn test_remote_keyboard_scroll_applies_full_distance_without_queueing() {
 
     rt.block_on(app.handle_remote_key(up_code, up_mods, &mut remote))
         .unwrap();
-    assert_eq!(app.scroll_offset, starting_offset.saturating_sub(3));
+    assert_eq!(app.scroll_offset, starting_offset.saturating_sub(5));
     assert_eq!(app.mouse_scroll_queue, 0);
     assert!(app.mouse_scroll_target.is_none());
 
@@ -757,7 +757,7 @@ fn test_disconnected_keyboard_scroll_applies_full_distance_without_queueing() {
     app.scroll_animation_source = Some(super::ScrollAnimationSource::Mouse);
 
     super::remote::handle_disconnected_key(&mut app, up_code, up_mods).unwrap();
-    assert_eq!(app.scroll_offset, starting_offset.saturating_sub(3));
+    assert_eq!(app.scroll_offset, starting_offset.saturating_sub(5));
     assert_eq!(app.mouse_scroll_queue, 0);
     assert!(app.mouse_scroll_target.is_none());
 
