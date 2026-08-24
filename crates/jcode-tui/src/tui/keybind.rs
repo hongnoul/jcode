@@ -514,7 +514,10 @@ fn shortcut_char_for_macos_option_shift_key_for_platform(
     modifiers: KeyModifiers,
     is_macos: bool,
 ) -> Option<char> {
-    if !is_macos || !modifiers.is_empty() {
+    // crossterm infers a SHIFT modifier for any uppercase char it parses, and
+    // many Option+Shift glyphs (Î, Å, Ç, ...) are uppercase letters. Accept
+    // both a bare glyph and a glyph tagged with the inferred SHIFT.
+    if !is_macos || !(modifiers.is_empty() || modifiers == KeyModifiers::SHIFT) {
         return None;
     }
     macos_option_shift_char_to_ascii_key(code)
@@ -757,5 +760,34 @@ mod tests {
                 "Option+Shift+{ascii} should map from {option_shift_char}"
             );
         }
+    }
+
+    /// crossterm tags any parsed uppercase char with an inferred SHIFT
+    /// modifier, so Option+Shift+D arrives as Char('Î') + SHIFT in terminals
+    /// without the Kitty keyboard protocol (e.g. Apple Terminal). The chord
+    /// must still resolve instead of falling through and printing the glyph.
+    #[test]
+    fn macos_option_shift_shortcut_chars_accept_crossterm_inferred_shift() {
+        for (option_shift_char, ascii) in [('Î', 'd'), ('Å', 'a'), ('Ç', 'c'), ('Ó', 'h')] {
+            assert_eq!(
+                shortcut_char_for_macos_option_shift_key_for_platform(
+                    KeyCode::Char(option_shift_char),
+                    KeyModifiers::SHIFT,
+                    true,
+                ),
+                Some(ascii),
+                "Option+Shift+{ascii} should map from {option_shift_char} with inferred SHIFT"
+            );
+        }
+
+        // Other modifier combinations must still be rejected.
+        assert_eq!(
+            shortcut_char_for_macos_option_shift_key_for_platform(
+                KeyCode::Char('Î'),
+                KeyModifiers::SHIFT | KeyModifiers::CONTROL,
+                true,
+            ),
+            None,
+        );
     }
 }
