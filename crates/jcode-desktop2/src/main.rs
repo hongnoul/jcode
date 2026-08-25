@@ -2067,8 +2067,28 @@ impl hot_worker::ApplicationWorker for App {
         if self.state.is_some() {
             return;
         }
-        // Reopen where the user left off.
-        let geometry = window_state::Geometry::load();
+        // Reopen where the user left off. With nothing saved, size the window
+        // relative to the screen instead of a fixed default, so a new window
+        // takes a quarter of the width on every display.
+        let geometry = if window_state::Geometry::has_saved() {
+            window_state::Geometry::load()
+        } else {
+            let screen = event_loop
+                .primary_monitor()
+                .or_else(|| event_loop.available_monitors().next())
+                .map(|monitor| {
+                    let scale = monitor.scale_factor();
+                    let size = monitor.size();
+                    (
+                        f64::from(size.width) / scale,
+                        f64::from(size.height) / scale,
+                    )
+                });
+            match screen {
+                Some(screen) => window_state::Geometry::for_screen(screen),
+                None => window_state::Geometry::default(),
+            }
+        };
         let mut attributes = Window::default_attributes()
             .with_title(place::window_title(self.model.working_dir.as_deref()))
             .with_inner_size(winit::dpi::LogicalSize::new(

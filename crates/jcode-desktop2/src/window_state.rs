@@ -9,9 +9,15 @@ use std::path::PathBuf;
 
 /// Default window size, used on first run and when a saved value is unusable.
 pub const DEFAULT_SIZE: (f64, f64) = (1100.0, 720.0);
+/// Fraction of the screen a brand-new window takes on first run. A quarter of
+/// the width sits beside an editor without covering it, and is what a fresh
+/// window is expected to look like; a remembered size always wins over this.
+pub const DEFAULT_SCREEN_FRACTION: f64 = 0.25;
+/// Fraction of the screen height a brand-new window takes.
+pub const DEFAULT_SCREEN_HEIGHT_FRACTION: f64 = 0.9;
 /// Smallest window we will restore. Anything smaller is treated as corrupt:
 /// restoring it would produce an unusable window.
-pub const MIN_SIZE: (f64, f64) = (480.0, 360.0);
+pub const MIN_SIZE: (f64, f64) = (360.0, 360.0);
 /// Largest size we will restore, guarding against absurd saved values.
 const MAX_SIZE: f64 = 30_000.0;
 
@@ -142,6 +148,41 @@ impl Geometry {
         }
     }
 
+    /// Whether a geometry has ever been saved. A first run has nothing to
+    /// restore, which is when the screen-relative default applies.
+    pub fn has_saved() -> bool {
+        Self::path().is_some_and(|path| path.exists())
+    }
+
+    /// Size for a brand-new window on a screen of the given logical size:
+    /// [`DEFAULT_SCREEN_FRACTION`] of its width, clamped to something usable.
+    /// Pure, so the sizing rule is testable without a display.
+    pub fn for_screen(screen: (f64, f64)) -> Self {
+        let usable = |value: f64, fraction: f64, min: f64, fallback: f64| {
+            if value.is_finite() && value > 0.0 && value <= MAX_SIZE {
+                (value * fraction).clamp(min, MAX_SIZE)
+            } else {
+                fallback
+            }
+        };
+        Self {
+            width: usable(
+                screen.0,
+                DEFAULT_SCREEN_FRACTION,
+                MIN_SIZE.0,
+                DEFAULT_SIZE.0,
+            ),
+            height: usable(
+                screen.1,
+                DEFAULT_SCREEN_HEIGHT_FRACTION,
+                MIN_SIZE.1,
+                DEFAULT_SIZE.1,
+            ),
+            position: None,
+            zoom: 1.0,
+        }
+    }
+
     /// Whether this geometry should be written yet, given the last write time
     /// and what was last written. Pure, so the throttling rule is testable.
     pub fn should_save(
@@ -201,6 +242,38 @@ mod tests {
             zoom: 1.0,
         };
         assert_eq!(Geometry::parse(&geometry.serialize()), geometry);
+    }
+
+    #[test]
+    fn a_new_window_takes_a_quarter_of_the_screen_width() {
+        let geometry = Geometry::for_screen((5120.0, 2880.0));
+        assert_eq!(geometry.width, 5120.0 * DEFAULT_SCREEN_FRACTION);
+        // A narrow screen still gets a usable window rather than a sliver.
+        assert_eq!(
+            Geometry::for_screen((1728.0, 1117.0)).width,
+            1728.0 * DEFAULT_SCREEN_FRACTION
+        );
+        assert_eq!(geometry.position, None);
+        // Still a usable window after the fraction is applied.
+        assert_eq!(geometry, geometry.sanitized());
+    }
+
+    #[test]
+    fn a_tiny_or_absurd_screen_never_makes_an_unusable_window() {
+        for screen in [
+            (100.0, 100.0),
+            (0.0, 0.0),
+            (f64::NAN, 900.0),
+            (f64::INFINITY, f64::INFINITY),
+            (-1920.0, -1080.0),
+        ] {
+            let geometry = Geometry::for_screen(screen);
+            assert!(
+                geometry.width >= MIN_SIZE.0 && geometry.height >= MIN_SIZE.1,
+                "screen {screen:?} produced {geometry:?}"
+            );
+            assert_eq!(geometry, geometry.sanitized());
+        }
     }
 
     #[test]
