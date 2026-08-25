@@ -362,6 +362,30 @@ mod tests {
     }
 
     #[test]
+    fn omniroute_login_identifies_local_openai_compatible_gateway() {
+        let provider = resolve_login_selection("omniroute", &cli_login_providers())
+            .expect("OmniRoute CLI login provider");
+        assert_eq!(provider.auth_kind, LoginProviderAuthKind::Local);
+        let LoginProviderTarget::OpenAiCompatible(profile) = provider.target else {
+            panic!("OmniRoute should use the OpenAI-compatible runtime");
+        };
+
+        assert_eq!(profile.id, "omniroute");
+        assert_eq!(profile.api_base, "http://localhost:20128/v1");
+        assert_eq!(profile.api_key_env, "OMNIROUTE_API_KEY");
+        // Local gateway: an API key is only needed for remote/management-auth
+        // setups, so login must not hard-require one.
+        assert!(!profile.requires_api_key);
+
+        // Aliases resolve to the same provider.
+        for alias in ["omni-route", "omni"] {
+            let via_alias = resolve_login_selection(alias, &cli_login_providers())
+                .unwrap_or_else(|| panic!("alias {alias} should resolve"));
+            assert_eq!(via_alias.id, "omniroute");
+        }
+    }
+
+    #[test]
     fn normalize_api_base_accepts_private_http_hosts() {
         assert_eq!(
             normalize_api_base("http://192.168.1.25:8000/v1/").as_deref(),
@@ -423,6 +447,31 @@ mod tests {
         );
         // unknown input stays unresolved
         assert_eq!(resolve_login_provider_loose("not-a-provider"), None);
+    }
+
+    #[test]
+    fn muse_selects_the_oauth_subscription_login_not_the_api_key_one() {
+        // Meta has two entries: the OAuth subscription login ("muse") and the
+        // OpenAI-compatible API-key one ("meta-muse"). A subscriber typing
+        // "muse" means the device-code login, so the bare name must land on the
+        // OAuth descriptor rather than prompting for an LLM| key to paste.
+        let muse = resolve_login_provider("muse").expect("muse resolves");
+        assert_eq!(muse.id, "muse");
+        assert_eq!(muse.auth_kind, LoginProviderAuthKind::OAuth);
+        assert_eq!(muse.target, LoginProviderTarget::Muse);
+
+        // The API-key path stays reachable under its own id and keeps its
+        // remaining aliases, so existing META_MUSE_API_KEY users are unaffected.
+        let api = resolve_login_provider("meta-muse").expect("meta-muse resolves");
+        assert_eq!(api.id, "meta-muse");
+        assert_eq!(api.auth_kind, LoginProviderAuthKind::ApiKey);
+        for alias in ["meta", "muse-spark", "meta-model-api"] {
+            assert_eq!(
+                resolve_login_provider(alias).map(|d| d.id),
+                Some("meta-muse"),
+                "alias {alias} should stay on the API-key entry"
+            );
+        }
     }
 
     #[test]

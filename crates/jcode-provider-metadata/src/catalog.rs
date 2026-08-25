@@ -107,6 +107,24 @@ pub const OPENROUTER_OPENAI_COMPAT_PROFILE: OpenAiCompatibleProfile = OpenAiComp
     requires_api_key: true,
 };
 
+// OmniRoute is a local-first AI gateway (github.com/diegosouzapw/OmniRoute)
+// that fronts 300+ providers behind one OpenAI-compatible endpoint with
+// auto-fallback. It listens on localhost:20128 by default; an API key is only
+// needed when management auth is enabled or when targeting a remote instance,
+// so `requires_api_key` is false like the other local gateways (LM Studio,
+// Ollama). `default_model` is None so the model picker reads the live catalog
+// from `/v1/models`.
+pub const OMNIROUTE_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfile {
+    id: "omniroute",
+    display_name: "OmniRoute",
+    api_base: "http://localhost:20128/v1",
+    api_key_env: "OMNIROUTE_API_KEY",
+    env_file: "omniroute.env",
+    setup_url: "https://github.com/diegosouzapw/OmniRoute",
+    default_model: None,
+    requires_api_key: false,
+};
+
 pub const ORCAROUTER_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfile {
     id: "orcarouter",
     display_name: "OrcaRouter",
@@ -478,7 +496,7 @@ pub const OPENAI_COMPAT_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfi
     requires_api_key: true,
 };
 
-pub(crate) const OPENAI_COMPAT_PROFILES: [OpenAiCompatibleProfile; 41] = [
+pub(crate) const OPENAI_COMPAT_PROFILES: [OpenAiCompatibleProfile; 42] = [
     OPENCODE_PROFILE,
     OPENCODE_GO_PROFILE,
     ZAI_PROFILE,
@@ -492,6 +510,7 @@ pub(crate) const OPENAI_COMPAT_PROFILES: [OpenAiCompatibleProfile; 41] = [
     CONIFER_PROFILE,
     CORTECS_PROFILE,
     OPENROUTER_OPENAI_COMPAT_PROFILE,
+    OMNIROUTE_PROFILE,
     ORCAROUTER_PROFILE,
     ANTHROPIC_OPENAI_COMPAT_PROFILE,
     OPENAI_NATIVE_OPENAI_COMPAT_PROFILE,
@@ -616,6 +635,19 @@ pub const OPENROUTER_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDesc
     recommended: false,
     target: LoginProviderTarget::OpenRouter,
     order: LoginProviderSurfaceOrder::new(Some(4), Some(3), Some(4), Some(3), Some(3)),
+};
+
+pub const OMNIROUTE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
+    id: "omniroute",
+    display_name: "OmniRoute",
+    auth_kind: LoginProviderAuthKind::Local,
+    auth_state_key: LoginProviderAuthStateKey::OpenRouterLike,
+    auth_status_method: "local gateway",
+    aliases: &["omni-route", "omni"],
+    menu_detail: "local AI gateway, 300+ providers with auto-fallback",
+    recommended: false,
+    target: LoginProviderTarget::OpenAiCompatible(OMNIROUTE_PROFILE),
+    order: LoginProviderSurfaceOrder::new(Some(38), Some(38), Some(38), Some(38), Some(38)),
 };
 
 pub const ORCAROUTER_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
@@ -1200,7 +1232,12 @@ pub const MUSE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor
     menu_detail: "Meta Muse subscription via auth.meta.com (device code)",
     recommended: true,
     target: LoginProviderTarget::Muse,
-    order: LoginProviderSurfaceOrder::new(Some(4), Some(4), Some(4), Some(4), Some(4)),
+    // Sits directly before the API-key `meta-muse` entry it supersedes, sharing
+    // its slot so the two Meta options read as a pair. Deliberately not given a
+    // low number: a new provider must not renumber the established menu slots
+    // users have memorised (guarded by
+    // `matrix_cli_login_selection_preserves_existing_order`).
+    order: LoginProviderSurfaceOrder::new(Some(38), Some(38), Some(38), Some(38), Some(38)),
 };
 
 pub const META_MUSE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
@@ -1248,7 +1285,7 @@ pub const GOOGLE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescript
     order: LoginProviderSurfaceOrder::new(Some(13), None, None, None, None),
 };
 
-pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 54] = [
+pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 55] = [
     AUTO_IMPORT_LOGIN_PROVIDER,
     CLAUDE_LOGIN_PROVIDER,
     ANTHROPIC_API_LOGIN_PROVIDER,
@@ -1256,6 +1293,7 @@ pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 54] = [
     OPENAI_API_LOGIN_PROVIDER,
     JCODE_LOGIN_PROVIDER,
     OPENROUTER_LOGIN_PROVIDER,
+    OMNIROUTE_LOGIN_PROVIDER,
     ORCAROUTER_LOGIN_PROVIDER,
     BEDROCK_LOGIN_PROVIDER,
     AZURE_LOGIN_PROVIDER,
