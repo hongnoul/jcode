@@ -391,9 +391,11 @@ const API_DEPENDENT_CHECKPOINTS: &[&str] = &[
     checkpoints::REASONING_CAPABILITY,
 ];
 
-/// Run the strict provider/model diagnostic.
-///
-/// `api_key` may be `None` only when `tier == DoctorTier::Offline`.
+/// `api_key` may be `None` only when `tier == DoctorTier::Offline`, or when the
+/// resolved profile is a local gateway (`requires_api_key = false`, e.g.
+/// OmniRoute/LM Studio/Ollama) whose localhost surface is reachable without a
+/// key — in that case `catalog`/`full` tiers continue with an unauthenticated
+/// fetch.
 pub async fn run_provider_e2e(
     profile: OpenAiCompatibleProfile,
     api_key: Option<&str>,
@@ -405,7 +407,10 @@ pub async fn run_provider_e2e(
     let provider_label = profile.display_name.to_string();
     let mut checks: Vec<DoctorCheck> = Vec::new();
 
-    if tier.requires_api_key() && api_key.map(str::trim).unwrap_or("").is_empty() {
+    if tier.requires_api_key()
+        && resolved.requires_api_key
+        && api_key.map(str::trim).unwrap_or("").is_empty()
+    {
         anyhow::bail!(
             "tier `{}` requires an API key for provider `{}` but none was supplied",
             tier.as_str(),
@@ -414,11 +419,19 @@ pub async fn run_provider_e2e(
     }
 
     // --- Stage 1: credential loaded ---
+    // Local gateways (requires_api_key = false) are reachable without a key;
+    // report that explicitly so the doctor does not look like it's waiting on a
+    // credential the user never needs to configure.
     match api_key.map(str::trim).filter(|key| !key.is_empty()) {
         Some(_) => checks.push(DoctorCheck::passed(
             checkpoints::AUTH_CREDENTIAL_LOADED,
             label_for(checkpoints::AUTH_CREDENTIAL_LOADED),
             format!("Loaded credential from {}", resolved.api_key_env),
+        )),
+        None if !resolved.requires_api_key => checks.push(DoctorCheck::skipped(
+            checkpoints::AUTH_CREDENTIAL_LOADED,
+            label_for(checkpoints::AUTH_CREDENTIAL_LOADED),
+            "local gateway: no credential required (key optional)".to_string(),
         )),
         None => checks.push(DoctorCheck::skipped(
             checkpoints::AUTH_CREDENTIAL_LOADED,

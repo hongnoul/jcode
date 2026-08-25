@@ -53,8 +53,13 @@ pub async fn run_provider_doctor_command(
         })?;
     let resolved = crate::provider_catalog::resolve_openai_compatible_profile(profile);
 
-    // Resolve the API key when the tier needs one.
-    let api_key = if tier.requires_api_key() {
+    // Resolve the API key when the tier needs one. Local gateways
+    // (`requires_api_key = false`, e.g. OmniRoute/LM Studio/Ollama) are
+    // reachable without a key, so `catalog`/`full` must not hard-fail when no
+    // key is stored — try to load one but continue with `None` and let the
+    // probe attempt an unauthenticated fetch against localhost. The error copy
+    // for keyed providers stays actionable.
+    let api_key = if tier.requires_api_key() && resolved.requires_api_key {
         let key = crate::provider_catalog::load_api_key_from_env_or_config(
             &resolved.api_key_env,
             &resolved.env_file,
@@ -67,6 +72,11 @@ pub async fn run_provider_doctor_command(
             )
         })?;
         Some(key)
+    } else if tier.requires_api_key() && !resolved.requires_api_key {
+        crate::provider_catalog::load_api_key_from_env_or_config(
+            &resolved.api_key_env,
+            &resolved.env_file,
+        )
     } else {
         None
     };
