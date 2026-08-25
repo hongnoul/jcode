@@ -734,38 +734,17 @@ pub(super) fn prepare_messages(
     prepared
 }
 
-/// Top padding used to vertically center the header on the initial empty
-/// screen. Derived only from the persistent header height (not suggestions)
-/// so the same value can be re-applied above the header once messages exist,
-/// keeping the header from jumping when the first prompt is sent.
-fn initial_header_pad_top(height: u16, header_lines: usize) -> usize {
-    let input_reserve = 4;
-    let available = (height as usize).saturating_sub(input_reserve);
-    available.saturating_sub(header_lines) / 2
-}
-
-/// Build the lines that fill the top padding above the header. Unseen release
-/// notes (the "Updates" box) render inside this padding, bottom-aligned so any
-/// leftover space stays at the top. With no unseen updates this is just blank
-/// padding. The returned vec is always exactly `pad_top` lines tall so the
-/// header position never shifts.
-fn build_top_pad_lines(width: u16, pad_top: usize) -> Vec<Line<'static>> {
-    let mut lines: Vec<Line<'static>> = Vec::with_capacity(pad_top);
-    if pad_top == 0 {
-        return lines;
-    }
-    // Leave one blank line between the box and the header.
-    let box_budget = pad_top.saturating_sub(1);
-    let boxed = header::build_updates_box_lines(width, box_budget);
-    let blanks = pad_top.saturating_sub(boxed.len() + usize::from(!boxed.is_empty()));
-    for _ in 0..blanks {
-        lines.push(Line::from(""));
-    }
+/// Build the lines that sit above the header on the initial empty screen.
+/// The screen is aligned to the top of the viewport - there is no centering
+/// padding. An unseen-release "Updates" box renders at the very top (followed
+/// by one blank line) when there are entries to show; otherwise this is empty.
+fn build_top_pad_lines(width: u16) -> Vec<Line<'static>> {
+    let boxed = header::build_updates_box_lines(width, 8);
+    let mut lines: Vec<Line<'static>> = Vec::with_capacity(boxed.len() + usize::from(!boxed.is_empty()));
     if !boxed.is_empty() {
         lines.extend(boxed);
         lines.push(Line::from(""));
     }
-    debug_assert_eq!(lines.len(), pad_top);
     lines
 }
 
@@ -892,17 +871,14 @@ fn prepare_messages_inner(app: &dyn TuiState, width: u16, height: u16) -> Prepar
             }
         }
 
-        // Vertically center the initial empty screen, but compute the padding
-        // from the header height alone so the exact same padding can be
-        // re-applied above the header once the conversation starts. That keeps
-        // the header at the same screen position when the first prompt
-        // arrives; the padding then simply scrolls away as the transcript
-        // grows instead of vanishing in one jump.
-        let pad_top = initial_header_pad_top(height, header_prepared.wrapped_lines.len());
-        let mut centered = build_top_pad_lines(width, pad_top);
-        centered.reserve(wrapped_lines.len());
-        centered.extend(wrapped_lines);
-        let wrapped_lines = centered;
+        // Align the initial screen to the top of the viewport: any unseen
+        // release notes ("Updates" box) sit at the very top, then the header
+        // and suggestions follow. There is no centering padding, so the header
+        // is at the top both before and after the first prompt is sent.
+        let mut top = build_top_pad_lines(width);
+        top.reserve(wrapped_lines.len());
+        top.extend(wrapped_lines);
+        let wrapped_lines = top;
         let wrapped_line_count = wrapped_lines.len();
         let wrapped_plain_lines = Arc::new(wrapped_lines.iter().map(ui::line_plain_text).collect());
         let prepared = Arc::new(PreparedMessages {
@@ -933,35 +909,10 @@ fn prepare_messages_inner(app: &dyn TuiState, width: u16, height: u16) -> Prepar
     }
 
     let compose_start = Instant::now();
-    // Re-apply the initial-screen centering pad above the header so the
-    // transition from the empty screen to the first message does not shift
-    // anything. The pad scrolls off naturally as the transcript grows.
-    let pad_top = initial_header_pad_top(height, header_prepared.wrapped_lines.len());
-    let padded_header = if pad_top > 0 {
-        let mut lines = build_top_pad_lines(width, pad_top);
-        lines.reserve(header_prepared.wrapped_lines.len());
-        lines.extend(header_prepared.wrapped_lines.iter().cloned());
-        let count = lines.len();
-        let plain = Arc::new(lines.iter().map(ui::line_plain_text).collect());
-        Arc::new(PreparedMessages {
-            wrapped_lines: lines,
-            wrapped_plain_lines: plain,
-            wrapped_copy_offsets: Arc::new(vec![0; count]),
-            raw_plain_lines: Arc::new(Vec::new()),
-            wrapped_line_map: Arc::new(Vec::new()),
-            wrapped_user_indices: Vec::new(),
-            wrapped_user_prompt_starts: Vec::new(),
-            wrapped_user_prompt_ends: Vec::new(),
-            user_prompt_texts: Vec::new(),
-            image_regions: Vec::new(),
-            edit_tool_ranges: Vec::new(),
-            copy_targets: Vec::new(),
-            message_boundaries: Vec::new(),
-            mermaid_pending_epoch: None,
-        })
-    } else {
-        header_prepared
-    };
+    // The conversation starts aligned to the top of the viewport. The initial
+    // centering padding was removed, so the header stays put (at the top) when
+    // the first prompt arrives.
+    let padded_header = header_prepared;
     let frame = PreparedChatFrame::from_sections(vec![
         (PreparedSectionKind::Header, padded_header),
         (PreparedSectionKind::Body, body_prepared),
