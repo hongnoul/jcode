@@ -569,6 +569,16 @@ impl App {
             crate::provider_catalog::LoginProviderTarget::Antigravity => {
                 self.start_antigravity_login()
             }
+            crate::provider_catalog::LoginProviderTarget::Muse => {
+                crate::telemetry::record_auth_surface_blocked(
+                    provider.id,
+                    provider.auth_kind.label(),
+                );
+                self.push_display_message(DisplayMessage::error(
+                    "Muse login is only available from the CLI right now. Run jcode login --provider muse."
+                        .to_string(),
+                ));
+            }
             crate::provider_catalog::LoginProviderTarget::Google => {
                 crate::telemetry::record_auth_surface_blocked(
                     provider.id,

@@ -319,6 +319,9 @@ pub async fn run_login_provider(
             LoginProviderTarget::Antigravity => login_antigravity_flow(options.no_browser)
                 .await
                 .map(|_| LoginFlowOutcome::Completed),
+            LoginProviderTarget::Muse => login_muse_flow(options.no_browser)
+                .await
+                .map(|_| LoginFlowOutcome::Completed),
             LoginProviderTarget::Google => {
                 login_google_flow(options.no_browser, options.google_access_tier)
                     .await
@@ -1399,6 +1402,22 @@ async fn login_google_flow(
     eprintln!("Then try asking: \"check my recent emails\" or \"search emails from ...\"");
 
     crate::telemetry::record_auth_success("google", "oauth");
+    Ok(())
+}
+
+async fn login_muse_flow(no_browser: bool) -> Result<()> {
+    eprintln!("Starting Muse (Meta) login...");
+    eprintln!("jcode will use the same device-code flow as `muse login` (auth.meta.com).");
+    eprintln!("If a browser is available, it will open the verification page automatically.");
+    eprintln!();
+    let creds = crate::auth::oauth::login_muse(no_browser).await?;
+    crate::auth::oauth::save_muse_tokens(&creds)?;
+    eprintln!("Successfully logged in to Muse!");
+    // Try to show where stored; muse-auth.json
+    if let Ok(path) = crate::storage::jcode_dir().map(|d| d.join("muse-auth.json")) {
+        eprintln!("Tokens saved to {}", path.display());
+    }
+    crate::telemetry::record_auth_success("muse", "oauth");
     Ok(())
 }
 

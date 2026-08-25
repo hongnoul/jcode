@@ -18,6 +18,7 @@ pub mod integration;
 pub mod lifecycle;
 pub mod login_diagnostics;
 pub mod login_flows;
+pub mod muse;
 pub mod oauth;
 pub(crate) mod refresh_coordinator;
 pub mod refresh_state;
@@ -208,6 +209,7 @@ fn log_auth_status_snapshot(event: &str, status: &AuthStatus) {
             ("antigravity", auth_state_label(status.antigravity)),
             ("gemini", auth_state_label(status.gemini)),
             ("cursor", auth_state_label(status.cursor)),
+            ("muse", auth_state_label(status.muse)),
             ("google", auth_state_label(status.google)),
         ],
     );
@@ -238,7 +240,8 @@ fn available_provider_base_readiness(provider: LoginProviderDescriptor) -> AuthR
         | crate::provider_catalog::LoginProviderTarget::Copilot
         | crate::provider_catalog::LoginProviderTarget::Gemini
         | crate::provider_catalog::LoginProviderTarget::Antigravity
-        | crate::provider_catalog::LoginProviderTarget::Google => AuthReadinessLevel::Authenticated,
+        | crate::provider_catalog::LoginProviderTarget::Google
+        | crate::provider_catalog::LoginProviderTarget::Muse => AuthReadinessLevel::Authenticated,
         _ => AuthReadinessLevel::CredentialPresent,
     }
 }
@@ -400,6 +403,7 @@ impl AuthStatus {
             || self.antigravity == AuthState::Available
             || self.gemini == AuthState::Available
             || self.cursor == AuthState::Available
+            || self.muse == AuthState::Available
             || self.grok_build == AuthState::Available
     }
 
@@ -436,6 +440,7 @@ impl AuthStatus {
                 ("antigravity", self.antigravity.label().to_string()),
                 ("gemini", self.gemini.label().to_string()),
                 ("cursor", self.cursor.label().to_string()),
+                ("muse", self.muse.label().to_string()),
                 ("grok_build", self.grok_build.label().to_string()),
             ],
         );
@@ -448,6 +453,7 @@ impl AuthStatus {
             || crate::auth::gemini::has_unconsented_cli_auth()
             || crate::auth::copilot::has_unconsented_external_auth().is_some()
             || crate::auth::cursor::has_unconsented_external_auth().is_some()
+            || crate::auth::muse::has_unconsented_external_auth().is_some()
     }
 
     pub fn state_for_key(&self, key: LoginProviderAuthStateKey) -> AuthState {
@@ -471,6 +477,7 @@ impl AuthStatus {
             LoginProviderAuthStateKey::Cursor => self.cursor,
             LoginProviderAuthStateKey::GrokBuild => self.grok_build,
             LoginProviderAuthStateKey::Google => self.google,
+            LoginProviderAuthStateKey::Muse => self.muse,
         }
     }
 
@@ -1010,6 +1017,15 @@ fn build_auth_status_uncached(mode: AuthProbeMode) -> (AuthStatus, Vec<(&'static
             AuthState::NotConfigured
         }
     });
+    record_auth_probe_step(&mut timings, "muse", || {
+        status.muse = if crate::auth::muse::has_muse_credentials() {
+            AuthState::Available
+        } else if crate::auth::muse::has_unconsented_external_auth().is_some() {
+            AuthState::Expired
+        } else {
+            AuthState::NotConfigured
+        }
+    });
     record_auth_probe_step(&mut timings, "google", || probe_google_status(&mut status));
 
     (status, timings)
@@ -1344,6 +1360,20 @@ fn assessment_for_key(
                 AuthValidationMethod::TimestampCheck,
             )
         }
+        LoginProviderAuthStateKey::Muse => {
+            let (source, detail) = summarize_sources(vec![muse_source()]);
+            (
+                source,
+                detail,
+                if state == AuthState::NotConfigured {
+                    AuthExpiryConfidence::Unknown
+                } else {
+                    AuthExpiryConfidence::Exact
+                },
+                AuthRefreshSupport::Automatic,
+                AuthValidationMethod::TimestampCheck,
+            )
+        }
         LoginProviderAuthStateKey::Jcode
         | LoginProviderAuthStateKey::Azure
         | LoginProviderAuthStateKey::Bedrock
@@ -1515,6 +1545,34 @@ fn gemini_source() -> Option<(AuthCredentialSource, String)> {
             "trusted external auth import".to_string(),
         )
     })
+}
+
+fn muse_source() -> Option<(AuthCredentialSource, String)> {
+    if let Ok(path) = crate::auth::muse::external_muse_auth_path()
+        && path.exists()
+        && crate::auth::muse::external_auth_allowed()
+    {
+        return Some((
+            AuthCredentialSource::TrustedExternalFile,
+            format!("trusted Muse CLI file ({})", path.display()),
+        ));
+    }
+    if crate::auth::muse::has_muse_credentials() {
+        // Check if it's from jcode-managed file vs external
+        if let Ok(path) = crate::storage::jcode_dir().map(|d| d.join("muse-auth.json"))
+            && path.exists()
+        {
+            return Some((
+                AuthCredentialSource::JcodeManagedFile,
+                format!("{}", path.display()),
+            ));
+        }
+        return Some((
+            AuthCredentialSource::TrustedExternalFile,
+            "trusted Muse CLI auth".to_string(),
+        ));
+    }
+    None
 }
 
 fn antigravity_source() -> Option<(AuthCredentialSource, String)> {

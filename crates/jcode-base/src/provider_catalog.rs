@@ -508,7 +508,7 @@ pub fn openai_compatible_profile_static_models(profile: OpenAiCompatibleProfile)
         }
         // Meta's catalog is authenticated, so expose the documented Muse Spark
         // models immediately after login while the live refresh completes.
-        "meta-muse" => {
+        "muse" | "meta-muse" => {
             push("muse-spark-1.2");
             push("muse-spark-1.1");
         }

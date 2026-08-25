@@ -52,6 +52,8 @@ pub struct AuthStatus {
     pub google: AuthState,
     /// Google Gmail has send capability (Full tier)
     pub google_can_send: bool,
+    /// Muse (Meta) provider via OAuth device code
+    pub muse: AuthState,
 }
 
 /// Auth state for Anthropic which has multiple auth methods
