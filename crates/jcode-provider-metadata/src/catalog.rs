@@ -485,6 +485,17 @@ pub const CELERIS_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfile {
     requires_api_key: true,
 };
 
+pub const ONETRIANGLE_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfile {
+    id: "onetriangle",
+    display_name: "OneTriangle",
+    api_base: "https://onetriangle.ai/v1",
+    api_key_env: "ONETRIANGLE_API_KEY",
+    env_file: "onetriangle.env",
+    setup_url: "https://onetriangle.ai/models",
+    default_model: Some("deepseek-v4-flash"),
+    requires_api_key: true,
+};
+
 pub const OPENAI_COMPAT_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfile {
     id: "openai-compatible",
     display_name: "OpenAI-compatible",
@@ -496,7 +507,7 @@ pub const OPENAI_COMPAT_PROFILE: OpenAiCompatibleProfile = OpenAiCompatibleProfi
     requires_api_key: true,
 };
 
-pub(crate) const OPENAI_COMPAT_PROFILES: [OpenAiCompatibleProfile; 42] = [
+pub(crate) const OPENAI_COMPAT_PROFILES: [OpenAiCompatibleProfile; 43] = [
     OPENCODE_PROFILE,
     OPENCODE_GO_PROFILE,
     ZAI_PROFILE,
@@ -536,6 +547,7 @@ pub(crate) const OPENAI_COMPAT_PROFILES: [OpenAiCompatibleProfile; 42] = [
     XIAOMI_MIMO_PROFILE,
     META_MUSE_PROFILE,
     CELERIS_PROFILE,
+    ONETRIANGLE_PROFILE,
     LMSTUDIO_PROFILE,
     OLLAMA_PROFILE,
     OPENAI_COMPAT_PROFILE,
@@ -1272,6 +1284,19 @@ pub const CELERIS_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescrip
     order: LoginProviderSurfaceOrder::new(Some(38), Some(38), Some(38), Some(38), Some(38)),
 };
 
+pub const ONETRIANGLE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
+    id: "onetriangle",
+    display_name: "OneTriangle",
+    auth_kind: LoginProviderAuthKind::ApiKey,
+    auth_state_key: LoginProviderAuthStateKey::OpenRouterLike,
+    auth_status_method: "API key",
+    aliases: &["one-triangle", "1triangle", "onetriangle-ai", "triangle"],
+    menu_detail: "OpenAI-compatible KV-cache-transfer inference (API key)",
+    recommended: false,
+    target: LoginProviderTarget::OpenAiCompatible(ONETRIANGLE_PROFILE),
+    order: LoginProviderSurfaceOrder::new(Some(38), Some(38), Some(38), Some(38), Some(38)),
+};
+
 pub const GOOGLE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
     id: "google",
     display_name: "Google/Gmail",
@@ -1285,7 +1310,7 @@ pub const GOOGLE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescript
     order: LoginProviderSurfaceOrder::new(Some(13), None, None, None, None),
 };
 
-pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 55] = [
+pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 56] = [
     AUTO_IMPORT_LOGIN_PROVIDER,
     CLAUDE_LOGIN_PROVIDER,
     ANTHROPIC_API_LOGIN_PROVIDER,
@@ -1332,6 +1357,7 @@ pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 55] = [
     MUSE_LOGIN_PROVIDER,
     META_MUSE_LOGIN_PROVIDER,
     CELERIS_LOGIN_PROVIDER,
+    ONETRIANGLE_LOGIN_PROVIDER,
     LMSTUDIO_LOGIN_PROVIDER,
     OLLAMA_LOGIN_PROVIDER,
     OPENAI_COMPAT_LOGIN_PROVIDER,

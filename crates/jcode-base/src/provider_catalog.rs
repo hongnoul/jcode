@@ -600,6 +600,12 @@ pub fn openai_compatible_profile_static_models(profile: OpenAiCompatibleProfile)
         "celeris" => {
             push("celeris-1");
         }
+        // OneTriangle's `/models` endpoint requires auth. Keep the verified
+        // served model id available pre-refresh; the live catalog fills in the
+        // rest (e.g. the Qwen3.6 27B id) once a key is saved.
+        "onetriangle" => {
+            push("deepseek-v4-flash");
+        }
         "xiaomi-mimo" => {
             push("mimo-v2.5");
             push("mimo-v2.5-pro");
