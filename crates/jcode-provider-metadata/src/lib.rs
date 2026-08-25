@@ -39,6 +39,7 @@ pub enum LoginProviderTarget {
     Gemini,
     Antigravity,
     Google,
+    Muse,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +57,7 @@ pub enum LoginProviderAuthStateKey {
     Cursor,
     GrokBuild,
     Google,
+    Muse,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

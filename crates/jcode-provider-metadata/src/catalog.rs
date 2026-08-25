@@ -1190,14 +1190,33 @@ pub const XIAOMI_MIMO_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDes
     order: LoginProviderSurfaceOrder::new(Some(37), Some(37), Some(37), Some(37), Some(37)),
 };
 
+pub const MUSE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
+    id: "muse",
+    display_name: "Muse (Meta)",
+    auth_kind: LoginProviderAuthKind::OAuth,
+    auth_state_key: LoginProviderAuthStateKey::Muse,
+    auth_status_method: "OAuth",
+    aliases: &["muse-code", "muse-oauth", "muse-spark-oauth"],
+    menu_detail: "Meta Muse subscription via auth.meta.com (device code)",
+    recommended: true,
+    target: LoginProviderTarget::Muse,
+    order: LoginProviderSurfaceOrder::new(Some(4), Some(4), Some(4), Some(4), Some(4)),
+};
+
 pub const META_MUSE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
     id: "meta-muse",
     display_name: "Meta Model API",
     auth_kind: LoginProviderAuthKind::ApiKey,
     auth_state_key: LoginProviderAuthStateKey::OpenRouterLike,
     auth_status_method: "API key",
-    aliases: &["meta", "muse", "muse-spark", "meta-model-api", "meta-ai"],
-    menu_detail: "OpenAI-compatible Meta Model API",
+    aliases: &[
+        "meta",
+        "muse-spark",
+        "meta-model-api",
+        "meta-ai",
+        "meta-muse-api",
+    ],
+    menu_detail: "OpenAI-compatible Meta Model API (API key)",
     recommended: false,
     target: LoginProviderTarget::OpenAiCompatible(META_MUSE_PROFILE),
     order: LoginProviderSurfaceOrder::new(Some(38), Some(38), Some(38), Some(38), Some(38)),
@@ -1229,7 +1248,7 @@ pub const GOOGLE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescript
     order: LoginProviderSurfaceOrder::new(Some(13), None, None, None, None),
 };
 
-pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 53] = [
+pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 54] = [
     AUTO_IMPORT_LOGIN_PROVIDER,
     CLAUDE_LOGIN_PROVIDER,
     ANTHROPIC_API_LOGIN_PROVIDER,
@@ -1272,6 +1291,7 @@ pub(crate) const LOGIN_PROVIDERS: [LoginProviderDescriptor; 53] = [
     GROK_BUILD_LOGIN_PROVIDER,
     NVIDIA_NIM_LOGIN_PROVIDER,
     XIAOMI_MIMO_LOGIN_PROVIDER,
+    MUSE_LOGIN_PROVIDER,
     META_MUSE_LOGIN_PROVIDER,
     CELERIS_LOGIN_PROVIDER,
     LMSTUDIO_LOGIN_PROVIDER,

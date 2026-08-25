@@ -99,12 +99,14 @@ pub enum ProviderChoice {
     NvidiaNim,
     #[value(alias = "xiaomi", alias = "mimo", alias = "xiaomi-mimo-api")]
     XiaomiMimo,
+    #[value(alias = "muse-code", alias = "muse-oauth", alias = "muse-spark-oauth")]
+    Muse,
     #[value(
         alias = "meta",
-        alias = "muse",
         alias = "muse-spark",
         alias = "meta-model-api",
-        alias = "meta-ai"
+        alias = "meta-ai",
+        alias = "meta-muse-api"
     )]
     MetaMuse,
     #[value(alias = "celeris-ai", alias = "celeris1", alias = "celeris-1")]
@@ -182,6 +184,7 @@ impl ProviderChoice {
             Self::GrokBuild => "grok-build",
             Self::NvidiaNim => "nvidia-nim",
             Self::XiaomiMimo => "xiaomi-mimo",
+            Self::Muse => "muse",
             Self::MetaMuse => "meta-muse",
             Self::Celeris => "celeris",
             Self::Lmstudio => "lmstudio",
@@ -353,6 +356,10 @@ const PROVIDER_CHOICE_LOGIN_PROVIDERS: &[(ProviderChoice, LoginProviderDescripto
         crate::provider_catalog::XIAOMI_MIMO_LOGIN_PROVIDER,
     ),
     (
+        ProviderChoice::Muse,
+        crate::provider_catalog::MUSE_LOGIN_PROVIDER,
+    ),
+    (
         ProviderChoice::MetaMuse,
         crate::provider_catalog::META_MUSE_LOGIN_PROVIDER,
     ),
@@ -419,8 +426,10 @@ pub fn login_provider_choice_mappings() -> &'static [(ProviderChoice, LoginProvi
 }
 
 pub fn profile_for_choice(choice: &ProviderChoice) -> Option<OpenAiCompatibleProfile> {
-    match login_provider_for_choice(choice)?.target {
+    let provider = login_provider_for_choice(choice)?;
+    match provider.target {
         LoginProviderTarget::OpenAiCompatible(profile) => Some(profile),
+        LoginProviderTarget::Muse => Some(crate::provider_catalog::META_MUSE_PROFILE),
         _ => None,
     }
 }
@@ -1372,6 +1381,23 @@ pub async fn login_and_bootstrap_provider(
             crate::env::set_var("JCODE_ACTIVE_PROVIDER", "antigravity");
             Arc::new(jcode_provider_antigravity_runtime::AntigravityProvider::new())
         }
+        LoginProviderTarget::Muse => {
+            disable_subscription_runtime_mode();
+            // Muse (Meta) uses the same https://api.meta.ai/v1 OpenAI-compatible endpoint as meta-muse,
+            // but credential comes from Muse OAuth (LLM|… from ~/.config/muse/auth.json) via `muse` auth.
+            // Reuse the meta-muse profile's runtime; the credential is resolved via `muse` auth check.
+            let profile = crate::provider_catalog::META_MUSE_PROFILE;
+            apply_openai_compatible_profile_env(Some(profile));
+            let multi = provider::MultiProvider::new();
+            let resolved = resolve_openai_compatible_profile(profile);
+            crate::provider::activation::apply_openai_compatible_runtime(
+                resolved.default_model.clone(),
+            )?;
+            if let Some(model) = resolved.default_model.as_deref() {
+                let _ = multi.set_model(model);
+            }
+            Arc::new(multi)
+        }
         LoginProviderTarget::Google => {
             anyhow::bail!("Google login cannot be used as a model provider bootstrap");
         }
@@ -1600,6 +1626,7 @@ async fn init_provider_with_options(
         | ProviderChoice::Belvedir
         | ProviderChoice::AlibabaCodingPlan
         | ProviderChoice::GeminiApi
+        | ProviderChoice::Muse
         | ProviderChoice::OpenaiCompatible => {
             disable_subscription_runtime_mode();
             let profile = profile_for_choice(choice)

@@ -47,6 +47,28 @@ pub mod openai {
     }
 }
 
+/// Muse (Meta) OAuth — device-code flow via auth.meta.com
+/// Client ID and endpoints inspected from the `muse` launcher binary
+/// (`~/.local/bin/muse`, `auth_url`, `client_id`, `authorization_endpoint`,
+/// `token_endpoint`). The Muse CLI stores credentials at
+/// `$XDG_CONFIG_HOME/muse/auth.json` / `~/.config/muse/auth.json`
+/// as `{"providers": {"meta": {"mechanism":"oauth","access_token":"..."}}}`.
+pub mod muse {
+    pub const CLIENT_ID: &str = "1031625952748946";
+    pub const AUTH_URL: &str = "https://auth.meta.com";
+    pub const AUTHORIZATION_ENDPOINT: &str = "/oidc/device/authorization/";
+    pub const TOKEN_ENDPOINT: &str = "/oidc/device/token/";
+    pub const DEVICE_CODE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
+
+    pub fn authorization_url() -> String {
+        format!("{}{}", AUTH_URL, AUTHORIZATION_ENDPOINT)
+    }
+
+    pub fn token_url() -> String {
+        format!("{}{}", AUTH_URL, TOKEN_ENDPOINT)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuthTokens {
     pub access_token: String,
@@ -1514,6 +1536,180 @@ async fn refresh_tokens_at_url(token_url: &str, refresh_token: &str) -> Result<O
         id_token: None,
         scopes: Vec::new(),
     })
+}
+
+/// Muse (Meta) device-code login — mirrors `muse` launcher `device_login()`.
+///
+/// POST {AUTH_URL}/oidc/device/authorization/ with `client_id` → device_code flow.
+/// Poll POST {AUTH_URL}/oidc/device/token/ with grant_type device_code.
+#[derive(Debug, Deserialize)]
+struct MuseDeviceAuthorizationResponse {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    #[serde(default)]
+    verification_uri_complete: Option<String>,
+    #[serde(default)]
+    expires_in: Option<u64>,
+    #[serde(default)]
+    interval: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MuseTokenResponse {
+    access_token: String,
+    #[serde(default)]
+    token_type: Option<String>,
+    #[serde(default)]
+    expires_in: Option<i64>,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MuseTokenErrorResponse {
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    error_description: Option<String>,
+}
+
+pub async fn login_muse(no_browser: bool) -> Result<crate::auth::muse::MuseCredentials> {
+    let client = crate::provider::shared_http_client();
+    let auth_url = muse::authorization_url();
+    eprintln!("Requesting Muse device code from {}...", auth_url);
+    let resp = client
+        .post(&auth_url)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Accept", "application/json")
+        .body(format!(
+            "client_id={}",
+            urlencoding::encode(muse::CLIENT_ID)
+        ))
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!(
+            "Muse device authorization failed (HTTP {}): {}",
+            status,
+            text
+        );
+    }
+    let auth: MuseDeviceAuthorizationResponse = resp.json().await?;
+    let verification_uri = auth
+        .verification_uri_complete
+        .as_deref()
+        .unwrap_or(&auth.verification_uri);
+    let user_code = &auth.user_code;
+    let interval = auth.interval.unwrap_or(5);
+    let expires_in = auth.expires_in.unwrap_or(900);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(expires_in);
+
+    eprintln!("\nOpen this page to sign in:\n  {}\n", verification_uri);
+    eprintln!("Confirm this code matches:\n  {}\n", user_code);
+    if !crate::auth::browser_suppressed(no_browser) {
+        let _ = open::that(verification_uri);
+        eprintln!("Opening browser for Muse login...\n");
+    } else {
+        eprintln!("(Browser suppressed; open the URL above manually.)\n");
+    }
+    if let Some(qr) = crate::login_qr::indented_section(
+        verification_uri,
+        "Scan this QR on another device if this machine has no browser:",
+        "    ",
+    ) {
+        eprintln!("{qr}\n");
+    }
+    eprintln!("Waiting for approval (expires in {}s)...", expires_in);
+
+    let token_url = muse::token_url();
+    loop {
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!(
+                "Muse device code expired before approval. Re-run `jcode login --provider muse`."
+            );
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+        let resp = client
+            .post(&token_url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Accept", "application/json")
+            .body(format!(
+                "grant_type={}&device_code={}&client_id={}",
+                urlencoding::encode(muse::DEVICE_CODE_GRANT),
+                urlencoding::encode(&auth.device_code),
+                urlencoding::encode(muse::CLIENT_ID)
+            ))
+            .send()
+            .await?;
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if status.is_success() {
+            let tokens: MuseTokenResponse = serde_json::from_str(&text)
+                .map_err(|e| anyhow::anyhow!("Muse token parse failed: {} body: {}", e, text))?;
+            if tokens.access_token.trim().is_empty() {
+                anyhow::bail!("Muse sign-in response carried no usable token");
+            }
+            let expires_at = tokens
+                .expires_in
+                .map(|secs| chrono::Utc::now().timestamp_millis() + secs * 1000);
+            eprintln!("Signed in to Muse.");
+            return Ok(crate::auth::muse::MuseCredentials {
+                access_token: tokens.access_token,
+                api_key: None,
+                expires_at,
+            });
+        }
+        // Error body like {"error":"authorization_pending"} or "slow_down"
+        let err: Result<MuseTokenErrorResponse, _> = serde_json::from_str(&text);
+        let code = err.ok().and_then(|e| e.error).unwrap_or_default();
+        match code.as_str() {
+            "authorization_pending" => continue,
+            "slow_down" => {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+            "expired_token" => anyhow::bail!("Muse device code expired before approval."),
+            "access_denied" => anyhow::bail!("Muse sign-in was denied."),
+            _ => {
+                anyhow::bail!(
+                    "Muse sign-in failed (HTTP {}): {} ({})",
+                    status,
+                    text,
+                    if code.is_empty() {
+                        "unknown error"
+                    } else {
+                        &code
+                    }
+                );
+            }
+        }
+    }
+}
+
+pub fn save_muse_tokens(creds: &crate::auth::muse::MuseCredentials) -> Result<()> {
+    let label = crate::auth::muse::login_target_label(None)?;
+    save_muse_tokens_for_account(creds, &label)
+}
+
+pub fn save_muse_tokens_for_account(
+    creds: &crate::auth::muse::MuseCredentials,
+    label: &str,
+) -> Result<()> {
+    let account = crate::auth::muse::MuseAccount {
+        label: label.to_string(),
+        access_token: creds.access_token.clone(),
+        api_key: creds.api_key.clone(),
+        refresh_token: None,
+        expires_at: creds.expires_at,
+        email: None,
+    };
+    crate::auth::muse::upsert_account(account)?;
+    Ok(())
 }
 
 #[cfg(test)]

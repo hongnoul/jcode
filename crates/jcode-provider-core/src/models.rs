@@ -135,6 +135,7 @@ pub fn provider_key_from_hint(provider_hint: Option<&str>) -> Option<&'static st
         "antigravity" => Some("antigravity"),
         "gemini" | "google gemini" => Some("gemini"),
         "cursor" => Some("cursor"),
+        "muse" | "meta-muse" => Some("muse"),
         _ => None,
     }
 }
@@ -202,6 +203,8 @@ pub fn provider_for_model_with_hint(
         Some("openai")
     } else if model.starts_with("gemini-") {
         Some("gemini")
+    } else if model.starts_with("muse-spark") {
+        Some("muse")
     } else {
         None
     }
