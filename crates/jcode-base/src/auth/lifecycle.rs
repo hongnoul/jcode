@@ -900,6 +900,12 @@ fn normalized_login_provider_id(provider_id: &str) -> Option<&'static str> {
         "copilot" => Some("copilot"),
         "gemini" => Some("gemini"),
         "antigravity" => Some("antigravity"),
+        // Both route their traffic through the OpenRouter-shaped runtime (see
+        // `provider_activation_for_id`), but they are still distinct login
+        // identities, so normalization must keep their own ids rather than
+        // collapsing them onto "openrouter".
+        "grok-build" => Some("grok-build"),
+        "muse" => Some("muse"),
         _ => None,
     }
 }
@@ -1153,6 +1159,9 @@ fn direct_provider_activation(provider_id: &str) -> Option<ProviderActivation> {
         "gemini" => (RuntimeProviderId::Gemini, ActiveProvider::Gemini),
         "antigravity" => (RuntimeProviderId::Antigravity, ActiveProvider::Antigravity),
         "grok-build" => (RuntimeProviderId::GrokBuild, ActiveProvider::OpenRouter),
+        // Muse speaks the OpenAI-compatible Meta Model API, which the
+        // OpenRouter-shaped runtime already handles.
+        "muse" => (RuntimeProviderId::OpenRouter, ActiveProvider::OpenRouter),
         _ => return None,
     };
     Some(ProviderActivation::initial(runtime_id, active))
