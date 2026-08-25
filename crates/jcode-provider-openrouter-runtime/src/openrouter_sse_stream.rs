@@ -19,6 +19,36 @@ fn local_endpoint_troubleshooting_hint(api_base: &str, model: &str) -> &'static 
     "Hint: check network connectivity, DNS/TLS, that the base URL includes the API version (usually /v1), and that the model exists on the provider."
 }
 
+/// Parse OmniRoute's routing-decision response header into a display string.
+///
+/// OmniRoute sets `X-OmniRoute-Decision: strategy=<name>; provider=<alias>;
+/// latency_ms=<n>` on completion responses (`strategy` is `single` for
+/// non-combo requests). Returns the provider alias, annotated with the combo
+/// strategy when one routed the request, e.g. `groq` or `groq (round-robin)`.
+fn omniroute_decision_provider(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    let raw = headers.get("x-omniroute-decision")?.to_str().ok()?;
+    let mut provider = None;
+    let mut strategy = None;
+    for part in raw.split(';') {
+        let Some((key, value)) = part.split_once('=') else {
+            continue;
+        };
+        let value = value.trim();
+        match key.trim().to_ascii_lowercase().as_str() {
+            "provider" if !value.is_empty() => provider = Some(value.to_string()),
+            "strategy" if !value.is_empty() && value != "single" => {
+                strategy = Some(value.to_string());
+            }
+            _ => {}
+        }
+    }
+    let provider = provider?;
+    Some(match strategy {
+        Some(strategy) => format!("{provider} ({strategy})"),
+        None => provider,
+    })
+}
+
 // ============================================================================
 // SSE Stream Parser
 // ============================================================================
@@ -241,6 +271,17 @@ async fn stream_response(
         }))
         .await;
 
+    // OmniRoute (and compatible gateways) report the routing decision for
+    // this request in a response header: `strategy=<name>; provider=<alias>;
+    // latency_ms=<n>`. Surface the upstream provider in the status line the
+    // same way OpenRouter's in-band `provider` field is surfaced, so the user
+    // can see which backend actually served the turn behind the gateway.
+    if let Some(decision) = omniroute_decision_provider(response.headers()) {
+        let _ = tx
+            .send(Ok(StreamEvent::UpstreamProvider { provider: decision }))
+            .await;
+    }
+
     let mut stream = OpenRouterStream::new(response.bytes_stream(), model.clone(), provider_pin);
 
     // Idle timeout between streamed chunks. Configurable so slow reasoning
@@ -328,6 +369,45 @@ fn is_retryable_error(error_str: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn headers_with_decision(value: &str) -> reqwest::header::HeaderMap {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "x-omniroute-decision",
+            reqwest::header::HeaderValue::from_str(value).unwrap(),
+        );
+        headers
+    }
+
+    #[test]
+    fn omniroute_decision_extracts_provider_for_single_strategy() {
+        let headers = headers_with_decision("strategy=single; provider=groq; latency_ms=412");
+        assert_eq!(
+            omniroute_decision_provider(&headers).as_deref(),
+            Some("groq")
+        );
+    }
+
+    #[test]
+    fn omniroute_decision_annotates_combo_strategy() {
+        let headers = headers_with_decision("strategy=round-robin; provider=mistral; latency_ms=88");
+        assert_eq!(
+            omniroute_decision_provider(&headers).as_deref(),
+            Some("mistral (round-robin)")
+        );
+    }
+
+    #[test]
+    fn omniroute_decision_absent_or_malformed_yields_none() {
+        assert_eq!(
+            omniroute_decision_provider(&reqwest::header::HeaderMap::new()),
+            None
+        );
+        let headers = headers_with_decision("strategy=single; latency_ms=42");
+        assert_eq!(omniroute_decision_provider(&headers), None);
+        let headers = headers_with_decision("not a decision header");
+        assert_eq!(omniroute_decision_provider(&headers), None);
+    }
 
     #[test]
     fn local_endpoint_hint_mentions_ollama_actions() {
