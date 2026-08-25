@@ -15,6 +15,11 @@ when you need to confirm which models/routes are actually available.
 - Context fetching / bulk reading / summarization: `gpt-5.5` with `effort: "none"`.
 - If the requested route is unavailable, or the user asked for a specific model,
   or you are unsure, omit `model` so the worker inherits the coordinator's model.
+- If an `omniroute` provider profile is active (local OmniRoute gateway,
+  `swarm list_models` shows `omniroute:` routes), prefer spawning workers with
+  `model: "omniroute:<model-id>"` for fan-out work: the gateway does
+  per-request failover and quota-aware routing across its providers, which
+  holds up better than a single direct API key under many-agent load.
 
 Structure guidance for spawned swarm agents:
 
