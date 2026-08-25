@@ -2315,8 +2315,13 @@ fn test_kimi_coding_header_detection_matches_endpoint_and_model() {
 
 #[test]
 fn test_openrouter_kimi_chat_request_includes_compat_user_agent() {
+    // Safe-proxy builder: raw Client::new() panics on macOS sandboxes
+    // without a SystemConfiguration store (same guard as production).
+    let client = jcode_provider_core::with_safe_proxy_detection(reqwest::Client::builder())
+        .build()
+        .expect("client");
     let request = apply_kimi_coding_agent_headers(
-        Client::new().post("https://openrouter.ai/api/v1/chat/completions"),
+        client.post("https://openrouter.ai/api/v1/chat/completions"),
         "https://openrouter.ai/api/v1",
         Some("moonshotai/kimi-k2.5"),
     )
@@ -2834,7 +2839,11 @@ fn midstream_transport_fault_emits_retry_rollback_before_replay() {
 
     rt.block_on(async {
         let api_base = spawn_midstream_fault_then_complete_server();
-        let client = reqwest::Client::new();
+        // Safe-proxy builder: raw Client::new() panics on macOS sandboxes
+        // without a SystemConfiguration store (same guard as production).
+        let client = jcode_provider_core::with_safe_proxy_detection(reqwest::Client::builder())
+            .build()
+            .expect("client");
         let (tx, mut rx) = tokio::sync::mpsc::channel::<anyhow::Result<StreamEvent>>(64);
 
         let request = serde_json::json!({
@@ -3206,4 +3215,166 @@ fn named_openai_compatible_provider_keeps_stable_name_and_profile_display_name()
     // User-facing identity: the profile the user configured.
     assert_eq!(provider.runtime_display_name(), "example-compat");
     assert_eq!(Provider::display_name(&provider), "example-compat");
+}
+
+// ============================================================================
+// OmniRoute routing-decision header surfacing
+// ============================================================================
+
+/// Fake gateway: serves a clean SSE completion with an `X-OmniRoute-Decision`
+/// response header, like OmniRoute does for every completion it routes.
+fn spawn_omniroute_decision_server(decision: &'static str) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind fake gateway server");
+    let addr = listener.local_addr().expect("fake gateway addr");
+
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept request");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("set read timeout");
+        let mut request = vec![0u8; 65536];
+        let _ = stream.read(&mut request);
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"gateway answer\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nX-OmniRoute-Decision: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            decision,
+            body.len(),
+            body
+        );
+        stream.write_all(response.as_bytes()).expect("write response");
+    });
+
+    format!("http://{addr}/v1")
+}
+
+async fn collect_omniroute_stream_events(api_base: String) -> Vec<StreamEvent> {
+    // `with_safe_proxy_detection` avoids the macOS SystemConfiguration NULL
+    // panic in sandboxed test environments (same failure mode the production
+    // client paths guard against).
+    let client = jcode_provider_core::with_safe_proxy_detection(reqwest::Client::builder())
+        .build()
+        .expect("client");
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<anyhow::Result<StreamEvent>>(64);
+    let request = serde_json::json!({
+        "model": "mock/mock-1",
+        "messages": [{"role": "user", "content": "hi"}],
+        "stream": true,
+    });
+    super::openrouter_sse_stream::run_stream_with_retries(
+        client,
+        api_base,
+        ProviderAuth::None {
+            label: "test".to_string(),
+        },
+        false,
+        request,
+        tx,
+        Arc::new(Mutex::new(None)),
+        "mock/mock-1".to_string(),
+    )
+    .await;
+
+    let mut events = Vec::new();
+    while let Some(item) = rx.recv().await {
+        events.push(item.expect("stream event"));
+    }
+    events
+}
+
+/// End-to-end through the real SSE transport: an `X-OmniRoute-Decision`
+/// response header must surface as `StreamEvent::UpstreamProvider` before the
+/// completion text, and the completion itself must still stream normally.
+#[test]
+fn omniroute_decision_header_surfaces_as_upstream_provider_event() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+
+    rt.block_on(async {
+        let api_base =
+            spawn_omniroute_decision_server("strategy=single; provider=groq; latency_ms=42");
+        let events = collect_omniroute_stream_events(api_base).await;
+
+        let upstream_at = events
+            .iter()
+            .position(|e| matches!(e, StreamEvent::UpstreamProvider { provider } if provider == "groq"))
+            .expect("UpstreamProvider event with the routed provider");
+        let text_at = events
+            .iter()
+            .position(
+                |e| matches!(e, StreamEvent::TextDelta(text) if text.contains("gateway answer")),
+            )
+            .expect("completion text still streams");
+        assert!(
+            upstream_at < text_at,
+            "routing decision must surface before completion text so the status line updates immediately"
+        );
+    });
+}
+
+/// Combo-routed requests annotate the strategy; a response without the header
+/// must not emit any UpstreamProvider event (plain OpenAI-compatible servers).
+#[test]
+fn omniroute_combo_strategy_annotated_and_absent_header_emits_nothing() {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+
+    rt.block_on(async {
+        let api_base = spawn_omniroute_decision_server(
+            "strategy=round-robin; provider=mistral; latency_ms=88",
+        );
+        let events = collect_omniroute_stream_events(api_base).await;
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                StreamEvent::UpstreamProvider { provider } if provider == "mistral (round-robin)"
+            )),
+            "combo strategy must be annotated on the provider"
+        );
+
+        // Reuse the midstream-fault server's clean second connection shape via
+        // a plain server without the header: no UpstreamProvider must appear.
+        let plain_base = {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind plain server");
+            let addr = listener.local_addr().expect("plain addr");
+            std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept");
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .expect("set read timeout");
+                let mut request = vec![0u8; 65536];
+                let _ = stream.read(&mut request);
+                let body = concat!(
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"plain answer\"},\"finish_reason\":\"stop\"}]}\n\n",
+                    "data: [DONE]\n\n",
+                );
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(response.as_bytes()).expect("write");
+            });
+            format!("http://{addr}/v1")
+        };
+        let plain_events = collect_omniroute_stream_events(plain_base).await;
+        assert!(
+            plain_events
+                .iter()
+                .all(|e| !matches!(e, StreamEvent::UpstreamProvider { .. })),
+            "no UpstreamProvider event for servers without the decision header"
+        );
+        assert!(
+            plain_events
+                .iter()
+                .any(|e| matches!(e, StreamEvent::TextDelta(text) if text.contains("plain answer"))),
+            "plain server completion still streams"
+        );
+    });
 }
