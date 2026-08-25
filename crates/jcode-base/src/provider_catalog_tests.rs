@@ -1212,6 +1212,24 @@ fn open_weight_family_context_limits_match_published_windows() {
     assert_eq!(f("some-unknown-model"), None);
 }
 
+/// OneTriangle's vLLM deployment caps DeepSeek V4 Flash at 131072 tokens even
+/// though the DeepSeek V4 family advertises 1M. Live-verified 2026-08-24:
+/// prompts past 131072 are rejected ("maximum context length is 131072
+/// tokens") and the streaming path returns 500. Budgeting 1M means compaction
+/// never fires before the server's hard wall.
+#[test]
+fn onetriangle_deepseek_context_limit_matches_served_cap_not_family_default() {
+    assert_eq!(
+        openai_compatible_profile_context_limit("onetriangle", "deepseek-v4-flash"),
+        Some(131_072)
+    );
+    // The direct DeepSeek profile keeps the family's 1M window.
+    assert_eq!(
+        openai_compatible_profile_context_limit("deepseek", "deepseek-v4-flash"),
+        Some(1_000_000)
+    );
+}
+
 #[test]
 fn minimax_default_provider_applies_minimax_api_key_env_not_openrouter() {
     // Regression for #407: `default_provider = "minimax"` (the built-in MiniMax

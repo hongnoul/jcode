@@ -681,6 +681,12 @@ pub fn openai_compatible_profile_context_limit(profile_id: &str, model: &str) ->
         // direct profile runs through the OpenRouter/OpenAI-compatible provider
         // implementation, whose live catalog can be unavailable during startup.
         "deepseek" if model.starts_with("deepseek-v4-") => Some(1_000_000),
+        // OneTriangle serves DeepSeek V4 Flash through a vLLM deployment capped
+        // at 131072 tokens (live-verified: longer prompts are rejected with
+        // "maximum context length is 131072 tokens", and the streaming path
+        // returns 500). Do not inherit the DeepSeek V4 family's 1M window here,
+        // or compaction never triggers before the server's hard limit.
+        "onetriangle" if model.starts_with("deepseek-") => Some(131_072),
         // Fall back to the shared open-weight family classifier. Many bundled
         // OpenAI-compatible gateways (Z.AI/GLM, Moonshot/Kimi, MiniMax, Qwen,
         // etc.) serve `/v1/models` entries without a `context_length`, so this
