@@ -948,6 +948,9 @@ pub struct AutoJudgeConfig {
     pub model: Option<String>,
 }
 
+/// How many transcript lines one incremental scroll step moves by default.
+pub const DEFAULT_SCROLL_LINES: u16 = 1;
+
 /// Keybinding configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -1022,6 +1025,10 @@ pub struct KeybindingsConfig {
     /// Session picker Enter action: "current-terminal" (default) or "new-terminal".
     /// Ctrl+Enter performs the alternate action.
     pub session_picker_enter: SessionPickerResumeAction,
+    /// How many transcript lines one incremental scroll step moves
+    /// (`scroll_up` / `scroll_down`, default: 1). Raise it for coarser,
+    /// faster travel. Values below 1 are clamped to 1.
+    pub scroll_lines: u16,
 }
 
 impl Default for KeybindingsConfig {
@@ -1072,6 +1079,7 @@ impl Default for KeybindingsConfig {
                 },
             ),
             session_picker_enter: SessionPickerResumeAction::CurrentTerminal,
+            scroll_lines: DEFAULT_SCROLL_LINES,
         }
     }
 }

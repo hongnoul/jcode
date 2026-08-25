@@ -196,7 +196,8 @@ pub const KEYBINDING_DEFAULTS: &[KeybindingDefault] = &[
     KeybindingDefault {
         id: "scroll_up",
         description: "Scroll the transcript up one step",
-        // Shift+J/K scroll incrementally; the un-shifted Ctrl+J/K move by prompt.
+        // Shift+J/K scroll incrementally (one line per press by default, see
+        // `keybindings.scroll_lines`); the un-shifted Ctrl+J/K move by prompt.
         macos: PlatformDefault::dev("ctrl+shift+k"),
         other: PlatformDefault::dev("ctrl+shift+k"),
     },

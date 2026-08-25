@@ -865,6 +865,7 @@ mod tests {
             prompt_up: ctrl('k'),
             prompt_down: ctrl('j'),
             bookmark: ctrl('g'),
+            line_amount: jcode_tui_core::keybind::LINE_SCROLL_AMOUNT,
         };
         let centered = CenteredToggleKeys {
             toggle: Some(alt('c')),

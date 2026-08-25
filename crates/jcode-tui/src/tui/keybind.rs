@@ -132,7 +132,8 @@ pub fn load_workspace_navigation_keys() -> WorkspaceNavigationKeys {
 pub fn load_scroll_keys() -> ScrollKeys {
     let cfg = config();
 
-    // Default to Ctrl+Shift+K/J for incremental scroll; Ctrl+K/J (un-shifted)
+    // Default to Ctrl+Shift+K/J for incremental scroll (one line per press,
+    // configurable via `keybindings.scroll_lines`); Ctrl+K/J (un-shifted)
     // move by prompt. Alt+U/D for page scroll.
     let default_up = KeyBinding {
         code: KeyCode::Char('k'),
@@ -212,6 +213,7 @@ pub fn load_scroll_keys() -> ScrollKeys {
         prompt_up,
         prompt_down,
         bookmark,
+        line_amount: i32::from(cfg.keybindings.scroll_lines.max(1)),
     }
 }
 

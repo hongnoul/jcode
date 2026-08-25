@@ -1,6 +1,11 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 
-pub const LINE_SCROLL_AMOUNT: i32 = 3;
+/// Fallback step for incremental scrolling when no configured value applies.
+///
+/// One line is the least surprising unit: `scroll_up` / `scroll_down` are
+/// documented as "one step", and a multi-line step reads as a jump rather than
+/// a scroll. Users who want coarser travel set `keybindings.scroll_lines`.
+pub const LINE_SCROLL_AMOUNT: i32 = 1;
 
 /// The macOS keycap for the Option/Alt modifier. Mac keyboards have no key
 /// labelled "Alt", so hints must show `⌥` there instead.
@@ -333,6 +338,8 @@ pub struct ScrollKeys {
     pub prompt_up: KeyBinding,
     pub prompt_down: KeyBinding,
     pub bookmark: KeyBinding,
+    /// Transcript lines moved per incremental scroll step. Always >= 1.
+    pub line_amount: i32,
 }
 
 impl ScrollKeys {
@@ -354,13 +361,18 @@ impl ScrollKeys {
                 .unwrap_or(false)
     }
 
+    /// Lines moved per incremental scroll step, never less than one.
+    pub fn line_amount(&self) -> i32 {
+        self.line_amount.max(1)
+    }
+
     /// Check if a key matches scroll up (returns scroll amount, negative = up)
     pub fn scroll_amount(&self, code: KeyCode, modifiers: KeyModifiers) -> Option<i32> {
         if self.matches_scroll_up(code, modifiers) {
-            return Some(-LINE_SCROLL_AMOUNT);
+            return Some(-self.line_amount());
         }
         if self.matches_scroll_down(code, modifiers) {
-            return Some(LINE_SCROLL_AMOUNT);
+            return Some(self.line_amount());
         }
         if self.page_up.matches(code, modifiers) {
             return Some(-10); // Page up
@@ -381,8 +393,8 @@ impl ScrollKeys {
         );
         if has_nav_mod && modifiers.contains(KeyModifiers::SHIFT) {
             match code {
-                KeyCode::Char('k') | KeyCode::Char('K') => return Some(-LINE_SCROLL_AMOUNT),
-                KeyCode::Char('j') | KeyCode::Char('J') => return Some(LINE_SCROLL_AMOUNT),
+                KeyCode::Char('k') | KeyCode::Char('K') => return Some(-self.line_amount()),
+                KeyCode::Char('j') | KeyCode::Char('J') => return Some(self.line_amount()),
                 _ => {}
             }
         }
@@ -670,6 +682,9 @@ mod tests {
                 code: KeyCode::Char('g'),
                 modifiers: KeyModifiers::CONTROL,
             },
+            // A non-default step, so these tests prove the configured value is
+            // what drives scrolling rather than a hard-coded constant.
+            line_amount: 3,
         }
     }
 
@@ -724,10 +739,13 @@ mod tests {
     }
 
     #[test]
-    fn test_line_scroll_keys_scroll_three_lines() {
+    fn test_line_scroll_keys_use_the_configured_step() {
         let keys = test_scroll_keys();
 
-        assert_eq!(LINE_SCROLL_AMOUNT, 3);
+        // The default is a single line: "scroll one step" should move one row.
+        assert_eq!(LINE_SCROLL_AMOUNT, 1);
+
+        // `test_scroll_keys` configures a 3-line step, which must win.
         assert_eq!(
             keys.scroll_amount(KeyCode::Char('k'), KeyModifiers::ALT),
             Some(-3)
@@ -735,6 +753,24 @@ mod tests {
         assert_eq!(
             keys.scroll_amount(KeyCode::Char('j'), KeyModifiers::ALT),
             Some(3)
+        );
+    }
+
+    #[test]
+    fn test_line_scroll_step_is_clamped_to_at_least_one_line() {
+        // A zero or negative `scroll_lines` would otherwise make the scroll
+        // keys silently dead, or scroll the wrong way.
+        let mut keys = test_scroll_keys();
+        keys.line_amount = 0;
+        assert_eq!(
+            keys.scroll_amount(KeyCode::Char('k'), KeyModifiers::ALT),
+            Some(-1)
+        );
+
+        keys.line_amount = -5;
+        assert_eq!(
+            keys.scroll_amount(KeyCode::Char('j'), KeyModifiers::ALT),
+            Some(1)
         );
     }
 
@@ -767,13 +803,13 @@ mod tests {
         for code in [KeyCode::Char('k'), KeyCode::Char('K')] {
             assert_eq!(
                 keys.scroll_amount(code, KeyModifiers::SUPER | KeyModifiers::SHIFT),
-                Some(-LINE_SCROLL_AMOUNT)
+                Some(-keys.line_amount())
             );
         }
         for code in [KeyCode::Char('j'), KeyCode::Char('J')] {
             assert_eq!(
                 keys.scroll_amount(code, KeyModifiers::SUPER | KeyModifiers::SHIFT),
-                Some(LINE_SCROLL_AMOUNT)
+                Some(keys.line_amount())
             );
         }
     }
@@ -789,13 +825,13 @@ mod tests {
         for code in [KeyCode::Char('k'), KeyCode::Char('K')] {
             assert_eq!(
                 keys.scroll_amount(code, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
-                Some(-LINE_SCROLL_AMOUNT)
+                Some(-keys.line_amount())
             );
         }
         for code in [KeyCode::Char('j'), KeyCode::Char('J')] {
             assert_eq!(
                 keys.scroll_amount(code, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
-                Some(LINE_SCROLL_AMOUNT)
+                Some(keys.line_amount())
             );
         }
     }
