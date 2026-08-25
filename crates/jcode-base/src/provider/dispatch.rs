@@ -173,6 +173,17 @@ impl MultiProvider {
                     ))
                 }
             }
+            ActiveProvider::OmniRoute => {
+                if let Some(omniroute) = self.omniroute_provider() {
+                    omniroute
+                        .complete(messages, tools, system, resume_session_id)
+                        .await
+                } else {
+                    Err(anyhow::anyhow!(
+                        "OmniRoute is not available. Run `jcode login --provider omniroute` or start the OmniRoute gateway on localhost:20128."
+                    ))
+                }
+            }
         }
     }
 
@@ -347,6 +358,23 @@ impl MultiProvider {
                 } else {
                     Err(anyhow::anyhow!(
                         "OpenRouter credentials not available. Set OPENROUTER_API_KEY environment variable."
+                    ))
+                }
+            }
+            ActiveProvider::OmniRoute => {
+                if let Some(omniroute) = self.omniroute_provider() {
+                    omniroute
+                        .complete_split(
+                            messages,
+                            tools,
+                            system_static,
+                            system_dynamic,
+                            resume_session_id,
+                        )
+                        .await
+                } else {
+                    Err(anyhow::anyhow!(
+                        "OmniRoute is not available. Run `jcode login --provider omniroute` or start the OmniRoute gateway on localhost:20128."
                     ))
                 }
             }

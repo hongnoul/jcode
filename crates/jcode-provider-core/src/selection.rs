@@ -11,6 +11,7 @@ pub enum ActiveProvider {
     Cursor,
     Bedrock,
     OpenRouter,
+    OmniRoute,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -23,6 +24,7 @@ pub struct ProviderAvailability {
     pub cursor: bool,
     pub bedrock: bool,
     pub openrouter: bool,
+    pub omniroute: bool,
     pub copilot_premium_zero: bool,
 }
 
@@ -37,6 +39,7 @@ impl ProviderAvailability {
             ActiveProvider::Cursor => self.cursor,
             ActiveProvider::Bedrock => self.bedrock,
             ActiveProvider::OpenRouter => self.openrouter,
+            ActiveProvider::OmniRoute => self.omniroute,
         }
     }
 }
@@ -58,6 +61,8 @@ pub fn auto_default_provider(availability: ProviderAvailability) -> ActiveProvid
         ActiveProvider::Cursor
     } else if availability.bedrock {
         ActiveProvider::Bedrock
+    } else if availability.omniroute {
+        ActiveProvider::OmniRoute
     } else if availability.openrouter {
         ActiveProvider::OpenRouter
     } else {
@@ -75,6 +80,7 @@ pub fn parse_provider_hint(value: &str) -> Option<ActiveProvider> {
         "cursor" => Some(ActiveProvider::Cursor),
         "bedrock" | "aws-bedrock" | "aws_bedrock" => Some(ActiveProvider::Bedrock),
         "openrouter" => Some(ActiveProvider::OpenRouter),
+        "omniroute" | "omni" | "omni-route" | "omni_route" => Some(ActiveProvider::OmniRoute),
         _ => None,
     }
 }
@@ -89,6 +95,7 @@ pub fn provider_label(provider: ActiveProvider) -> &'static str {
         ActiveProvider::Cursor => "Cursor",
         ActiveProvider::Bedrock => "AWS Bedrock",
         ActiveProvider::OpenRouter => "OpenRouter",
+        ActiveProvider::OmniRoute => "OmniRoute",
     }
 }
 
@@ -102,6 +109,7 @@ pub fn provider_key(provider: ActiveProvider) -> &'static str {
         ActiveProvider::Cursor => "cursor",
         ActiveProvider::Bedrock => "bedrock",
         ActiveProvider::OpenRouter => "openrouter",
+        ActiveProvider::OmniRoute => "omniroute",
     }
 }
 
@@ -115,6 +123,7 @@ pub fn provider_from_model_key(key: &str) -> Option<ActiveProvider> {
         "cursor" => Some(ActiveProvider::Cursor),
         "bedrock" => Some(ActiveProvider::Bedrock),
         "openrouter" => Some(ActiveProvider::OpenRouter),
+        "omniroute" | "omni" => Some(ActiveProvider::OmniRoute),
         _ => None,
     }
 }
@@ -186,6 +195,10 @@ pub fn explicit_model_provider_prefix(model: &str) -> Option<(ActiveProvider, &'
         Some((ActiveProvider::Cursor, "cursor:", rest))
     } else if let Some(rest) = model.strip_prefix("bedrock:") {
         Some((ActiveProvider::Bedrock, "bedrock:", rest))
+    } else if let Some(rest) = model.strip_prefix("omniroute:") {
+        Some((ActiveProvider::OmniRoute, "omniroute:", rest))
+    } else if let Some(rest) = model.strip_prefix("omni:") {
+        Some((ActiveProvider::OmniRoute, "omni:", rest))
     } else if let Some(rest) = model.strip_prefix("openrouter:") {
         Some((ActiveProvider::OpenRouter, "openrouter:", rest))
     } else {
@@ -320,6 +333,7 @@ pub fn fallback_sequence(active: ActiveProvider) -> Vec<ActiveProvider> {
             ActiveProvider::Gemini,
             ActiveProvider::Cursor,
             ActiveProvider::Bedrock,
+            ActiveProvider::OmniRoute,
             ActiveProvider::OpenRouter,
         ],
         ActiveProvider::OpenAI => vec![
@@ -329,6 +343,7 @@ pub fn fallback_sequence(active: ActiveProvider) -> Vec<ActiveProvider> {
             ActiveProvider::Gemini,
             ActiveProvider::Cursor,
             ActiveProvider::Bedrock,
+            ActiveProvider::OmniRoute,
             ActiveProvider::OpenRouter,
         ],
         ActiveProvider::Copilot => vec![
@@ -339,6 +354,7 @@ pub fn fallback_sequence(active: ActiveProvider) -> Vec<ActiveProvider> {
             ActiveProvider::Gemini,
             ActiveProvider::Cursor,
             ActiveProvider::Bedrock,
+            ActiveProvider::OmniRoute,
             ActiveProvider::OpenRouter,
         ],
         ActiveProvider::Antigravity => vec![
@@ -349,6 +365,7 @@ pub fn fallback_sequence(active: ActiveProvider) -> Vec<ActiveProvider> {
             ActiveProvider::Gemini,
             ActiveProvider::Cursor,
             ActiveProvider::Bedrock,
+            ActiveProvider::OmniRoute,
             ActiveProvider::OpenRouter,
         ],
         ActiveProvider::Gemini => vec![
@@ -359,6 +376,7 @@ pub fn fallback_sequence(active: ActiveProvider) -> Vec<ActiveProvider> {
             ActiveProvider::Copilot,
             ActiveProvider::Cursor,
             ActiveProvider::Bedrock,
+            ActiveProvider::OmniRoute,
             ActiveProvider::OpenRouter,
         ],
         ActiveProvider::Cursor => vec![
@@ -368,6 +386,8 @@ pub fn fallback_sequence(active: ActiveProvider) -> Vec<ActiveProvider> {
             ActiveProvider::Copilot,
             ActiveProvider::Antigravity,
             ActiveProvider::Gemini,
+            ActiveProvider::Bedrock,
+            ActiveProvider::OmniRoute,
             ActiveProvider::OpenRouter,
         ],
         ActiveProvider::Bedrock => vec![
@@ -378,16 +398,29 @@ pub fn fallback_sequence(active: ActiveProvider) -> Vec<ActiveProvider> {
             ActiveProvider::Antigravity,
             ActiveProvider::Gemini,
             ActiveProvider::Cursor,
+            ActiveProvider::OmniRoute,
             ActiveProvider::OpenRouter,
         ],
         ActiveProvider::OpenRouter => vec![
             ActiveProvider::OpenRouter,
+            ActiveProvider::OmniRoute,
             ActiveProvider::Claude,
             ActiveProvider::OpenAI,
             ActiveProvider::Copilot,
             ActiveProvider::Antigravity,
             ActiveProvider::Gemini,
             ActiveProvider::Cursor,
+        ],
+        ActiveProvider::OmniRoute => vec![
+            ActiveProvider::OmniRoute,
+            ActiveProvider::Claude,
+            ActiveProvider::OpenAI,
+            ActiveProvider::Copilot,
+            ActiveProvider::Antigravity,
+            ActiveProvider::Gemini,
+            ActiveProvider::Cursor,
+            ActiveProvider::Bedrock,
+            ActiveProvider::OpenRouter,
         ],
     }
 }

@@ -782,6 +782,7 @@ pub enum RuntimeKey {
     Bedrock,
     Antigravity,
     CodeAssistOAuth,
+    OmniRoute,
     RemoteCatalog,
     Current,
     Other(String),
@@ -804,6 +805,7 @@ impl RuntimeKey {
             ModelRouteApiMethod::Bedrock => Self::Bedrock,
             ModelRouteApiMethod::CodeAssistOAuth => Self::CodeAssistOAuth,
             ModelRouteApiMethod::AntigravityHttps => Self::Antigravity,
+            ModelRouteApiMethod::OmniRoute => Self::OmniRoute,
             ModelRouteApiMethod::RemoteCatalog => Self::RemoteCatalog,
             ModelRouteApiMethod::Current => Self::Current,
             ModelRouteApiMethod::Other(method) => Self::Other(method.clone()),
@@ -827,6 +829,7 @@ impl RuntimeKey {
             Self::Cursor => "cursor".to_string(),
             Self::Bedrock => "bedrock".to_string(),
             Self::Antigravity => "antigravity".to_string(),
+            Self::OmniRoute => "omniroute".to_string(),
             Self::CodeAssistOAuth => "code-assist-oauth".to_string(),
             Self::RemoteCatalog => "remote-catalog".to_string(),
             Self::Current => "current".to_string(),
@@ -899,6 +902,7 @@ impl RouteSelection {
             RuntimeKey::Cursor => format!("cursor:{model}"),
             RuntimeKey::Bedrock => format!("bedrock:{model}"),
             RuntimeKey::Antigravity => format!("antigravity:{model}"),
+            RuntimeKey::OmniRoute => format!("omniroute:{model}"),
             RuntimeKey::Gemini
             | RuntimeKey::CodeAssistOAuth
             | RuntimeKey::RemoteCatalog
@@ -940,6 +944,7 @@ pub enum ModelRouteApiMethod {
     Bedrock,
     CodeAssistOAuth,
     AntigravityHttps,
+    OmniRoute,
     RemoteCatalog,
     Current,
     Other(String),
@@ -975,6 +980,7 @@ impl ModelRouteApiMethod {
             "bedrock" => Self::Bedrock,
             "code-assist-oauth" => Self::CodeAssistOAuth,
             "https" => Self::AntigravityHttps,
+            "omniroute" => Self::OmniRoute,
             "remote-catalog" => Self::RemoteCatalog,
             "current" => Self::Current,
             _ => {
@@ -1019,6 +1025,10 @@ impl ModelRouteApiMethod {
         matches!(self, Self::Bedrock)
     }
 
+    pub fn is_omniroute(&self) -> bool {
+        matches!(self, Self::OmniRoute)
+    }
+
     pub fn matches_openai_compatible_profile(&self, provider_id: &str) -> bool {
         self.profile_id()
             .is_some_and(|profile_id| profile_id.eq_ignore_ascii_case(provider_id))
@@ -1043,6 +1053,7 @@ impl ModelRouteApiMethod {
             Self::Copilot => "copilot".to_string(),
             Self::Cursor => "cursor".to_string(),
             Self::Bedrock => "bedrock".to_string(),
+            Self::OmniRoute => "omniroute".to_string(),
             Self::AntigravityHttps => "https".to_string(),
             Self::RemoteCatalog => "remote-catalog".to_string(),
             Self::Current => "current".to_string(),

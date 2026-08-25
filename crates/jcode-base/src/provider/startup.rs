@@ -126,6 +126,7 @@ impl MultiProvider {
             .is_available();
         let has_bedrock_creds = bedrock::BedrockProvider::has_credentials();
         let has_openrouter_creds = openrouter::has_credentials();
+        let _has_omniroute_creds = true; // OmniRoute local gateway is always available (requires_api_key=false)
 
         let use_claude_cli = std::env::var("JCODE_USE_CLAUDE_CLI")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -263,6 +264,7 @@ impl MultiProvider {
             cursor: cursor_provider.is_some(),
             bedrock: bedrock_provider.is_some(),
             openrouter: openrouter.is_some(),
+            omniroute: true,
             copilot_premium_zero,
         };
         let mut active = Self::auto_default_provider(availability);
@@ -331,6 +333,15 @@ impl MultiProvider {
             gemini: RwLock::new(gemini_provider),
             cursor: RwLock::new(cursor_provider),
             bedrock: RwLock::new(bedrock_provider),
+            omniroute: RwLock::new({
+                // OmniRoute reuses the OpenRouter runtime with the OmniRoute profile
+                match external::instantiate_openrouter_runtime(
+                    external::OpenRouterRuntimeSpec::CompatibleProfile(crate::provider_catalog::OMNIROUTE_PROFILE),
+                ) {
+                    Ok(p) => Some(p),
+                    Err(_) => None,
+                }
+            }),
             openrouter: RwLock::new(openrouter),
             openai_compatible_profiles: RwLock::new(HashMap::new()),
             active_openai_compatible_profile: RwLock::new(None),

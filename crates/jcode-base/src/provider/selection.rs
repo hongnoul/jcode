@@ -476,6 +476,7 @@ impl MultiProvider {
                 ModelRouteApiMethod::Cursor => return format!("cursor:{model}"),
                 ModelRouteApiMethod::Bedrock => return format!("bedrock:{model}"),
                 ModelRouteApiMethod::AntigravityHttps => return format!("antigravity:{model}"),
+                ModelRouteApiMethod::OmniRoute => return format!("omniroute:{model}"),
                 ModelRouteApiMethod::OpenAiCompatible { profile_id: None }
                 | ModelRouteApiMethod::CodeAssistOAuth
                 | ModelRouteApiMethod::RemoteCatalog

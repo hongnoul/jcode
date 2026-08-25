@@ -357,6 +357,8 @@ pub struct MultiProvider {
     bedrock: RwLock<Option<Arc<bedrock::BedrockProvider>>>,
     /// OpenRouter API provider
     openrouter: RwLock<Option<Arc<dyn Provider>>>,
+    /// OmniRoute local gateway provider (first-class OpenAI-compatible gateway)
+    omniroute: RwLock<Option<Arc<dyn Provider>>>,
     /// Direct OpenAI-compatible runtimes keyed by profile id.
     ///
     /// These use the same wire protocol implementation as OpenRouter, but must
@@ -499,6 +501,7 @@ impl MultiProvider {
             ("cu", self.cursor_provider().is_some()),
             ("be", self.bedrock_provider().is_some()),
             ("or", self.openrouter_provider().is_some()),
+            ("om", self.omniroute_provider().is_some()),
         ]
         .iter()
         .filter(|(_, present)| *present)
@@ -848,6 +851,7 @@ impl MultiProvider {
                 let runtime = std::env::var("JCODE_RUNTIME_PROVIDER").ok();
                 crate::provider_activity::source_key_for_provider_label(&label, runtime.as_deref())
             }
+            ActiveProvider::OmniRoute => "omniroute".to_string(),
             other => Self::provider_key(other).to_string(),
         }
     }
@@ -1201,6 +1205,16 @@ impl MultiProvider {
                 self.set_active_provider(ActiveProvider::Bedrock);
                 Ok(())
             }
+            ActiveProvider::OmniRoute => {
+                let Some(omniroute) = self.omniroute_provider() else {
+                    anyhow::bail!(
+                        "OmniRoute is not available. Run `jcode login --provider omniroute` or start the gateway on localhost:20128."
+                    );
+                };
+                omniroute.set_model(model)?;
+                self.set_active_provider(ActiveProvider::OmniRoute);
+                Ok(())
+            }
             ActiveProvider::OpenRouter => {
                 if let Some(active_profile) =
                     self.active_openai_compatible_profile_serving_model(model)
@@ -1512,6 +1526,21 @@ impl MultiProvider {
                 Some(Arc::new(bedrock::BedrockProvider::new()));
         }
 
+        let already_has_omniroute = self.omniroute_provider().is_some();
+        if !already_has_omniroute {
+            // OmniRoute is a local gateway (requires_api_key=false) – always try to
+            // instantiate when not present so it appears as first-class.
+            if let Ok(provider) = external::instantiate_openrouter_runtime(
+                external::OpenRouterRuntimeSpec::CompatibleProfile(crate::provider_catalog::OMNIROUTE_PROFILE),
+            ) {
+                crate::logging::info("Hot-initialized OmniRoute provider");
+                *self
+                    .omniroute
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(provider);
+            }
+        }
+
         let registry = ProviderRegistry::new(self);
         if crate::auth::grok_build::has_cached_login()
             && registry.compatible_profile(GROK_BUILD_PROFILE_ID).is_none()
@@ -1545,6 +1574,9 @@ impl MultiProvider {
         }
         if let Some(bedrock) = self.bedrock_provider() {
             self.spawn_post_auth_model_refresh(bedrock, "AWS Bedrock");
+        }
+        if let Some(omniroute) = self.omniroute_provider() {
+            self.spawn_post_auth_model_refresh(omniroute, "OmniRoute");
         }
         if let Some(grok) = ProviderRegistry::new(self).compatible_profile(GROK_BUILD_PROFILE_ID) {
             self.spawn_post_auth_model_refresh(grok, "Grok Build");
@@ -1687,6 +1719,7 @@ impl MultiProvider {
             ActiveProvider::Gemini => "gemini",
             ActiveProvider::Cursor => "cursor",
             ActiveProvider::Bedrock => "bedrock",
+            ActiveProvider::OmniRoute => "omniroute",
             ActiveProvider::OpenRouter => {
                 if let Some(openrouter) = self.active_openrouter_execution_provider()
                     && let Some((_provider, api_method, _detail)) =
@@ -1764,6 +1797,7 @@ impl Provider for MultiProvider {
             ActiveProvider::Gemini => "Gemini",
             ActiveProvider::Cursor => "Cursor",
             ActiveProvider::Bedrock => "Bedrock",
+            ActiveProvider::OmniRoute => "OmniRoute",
             ActiveProvider::OpenRouter => "OpenRouter",
         }
     }
@@ -1817,6 +1851,10 @@ impl Provider for MultiProvider {
                 .bedrock_provider()
                 .map(|o| o.model())
                 .unwrap_or_else(|| "anthropic.claude-3-5-sonnet-20241022-v2:0".to_string()),
+            ActiveProvider::OmniRoute => self
+                .omniroute_provider()
+                .map(|o| o.model())
+                .unwrap_or_else(|| "auto".to_string()),
             ActiveProvider::OpenRouter => self
                 .active_openrouter_execution_provider()
                 .map(|o| o.model())
@@ -1958,6 +1996,10 @@ impl Provider for MultiProvider {
                 .unwrap_or(false),
             ActiveProvider::Bedrock => self
                 .bedrock_provider()
+                .map(|provider| provider.supports_image_input())
+                .unwrap_or(false),
+            ActiveProvider::OmniRoute => self
+                .omniroute_provider()
                 .map(|provider| provider.supports_image_input())
                 .unwrap_or(false),
             ActiveProvider::OpenRouter => self
@@ -2168,6 +2210,10 @@ impl Provider for MultiProvider {
                 .bedrock_provider()
                 .map(|bedrock| bedrock.available_models_for_switching())
                 .unwrap_or_default(),
+            ActiveProvider::OmniRoute => self
+                .omniroute_provider()
+                .map(|o| o.available_models_for_switching())
+                .unwrap_or_default(),
             ActiveProvider::OpenRouter => self
                 .active_openrouter_execution_provider()
                 .map(|openrouter| openrouter.available_models_for_switching())
@@ -2230,6 +2276,7 @@ impl Provider for MultiProvider {
         let gemini = self.gemini_provider();
         let cursor = self.cursor_provider();
         let bedrock = self.bedrock_provider();
+        let omniroute = self.omniroute_provider();
 
         let (
             anthropic_result,
@@ -2241,6 +2288,7 @@ impl Provider for MultiProvider {
             gemini_result,
             cursor_result,
             bedrock_result,
+            omniroute_result,
         ) = tokio::join!(
             async {
                 match anthropic {
@@ -2296,6 +2344,12 @@ impl Provider for MultiProvider {
                     None => Ok(()),
                 }
             },
+            async {
+                match omniroute {
+                    Some(provider) => provider.prefetch_models().await,
+                    None => Ok(()),
+                }
+            },
         );
 
         let active_provider = self.active_provider();
@@ -2311,6 +2365,7 @@ impl Provider for MultiProvider {
             ("gemini", gemini_result),
             ("cursor", cursor_result),
             ("bedrock", bedrock_result),
+            ("omniroute", omniroute_result),
         ] {
             if let Err(err) = result {
                 let is_active = matches!(
@@ -2323,6 +2378,7 @@ impl Provider for MultiProvider {
                         | (ActiveProvider::Gemini, "gemini")
                         | (ActiveProvider::Cursor, "cursor")
                         | (ActiveProvider::Bedrock, "bedrock")
+                        | (ActiveProvider::OmniRoute, "omniroute")
                 );
                 if !is_active || matches!(provider_name, "bedrock") {
                     optional_errors.push(format!("{provider_name}: {err}"));
@@ -2398,6 +2454,7 @@ impl Provider for MultiProvider {
                 .map(|o| o.handles_tools_internally())
                 .unwrap_or(false),
             ActiveProvider::Bedrock => false, // jcode executes Bedrock tool calls
+            ActiveProvider::OmniRoute => false, // jcode executes tools (gateway is OpenAI-compatible)
             ActiveProvider::OpenRouter => false, // jcode executes tools
         }
     }
@@ -2411,6 +2468,9 @@ impl Provider for MultiProvider {
             ActiveProvider::Copilot => self.copilot_provider().and_then(|o| o.reasoning_effort()),
             ActiveProvider::OpenRouter => self
                 .active_openrouter_execution_provider()
+                .and_then(|o| o.reasoning_effort()),
+            ActiveProvider::OmniRoute => self
+                .omniroute_provider()
                 .and_then(|o| o.reasoning_effort()),
             _ => None,
         }
@@ -2430,6 +2490,10 @@ impl Provider for MultiProvider {
                 .copilot_provider()
                 .ok_or_else(|| anyhow::anyhow!("Copilot provider not available"))?
                 .set_reasoning_effort(effort),
+            ActiveProvider::OmniRoute => self
+                .omniroute_provider()
+                .ok_or_else(|| anyhow::anyhow!("OmniRoute provider not available"))?
+                .set_reasoning_effort(effort),
             ActiveProvider::OpenRouter => self
                 .active_openrouter_execution_provider()
                 .ok_or_else(|| anyhow::anyhow!("OpenAI-compatible provider not available"))?
@@ -2448,6 +2512,10 @@ impl Provider for MultiProvider {
                 .unwrap_or_default(),
             ActiveProvider::OpenAI => self
                 .openai_provider()
+                .map(|o| o.available_efforts())
+                .unwrap_or_default(),
+            ActiveProvider::OmniRoute => self
+                .omniroute_provider()
                 .map(|o| o.available_efforts())
                 .unwrap_or_default(),
             ActiveProvider::OpenRouter => self
@@ -2586,6 +2654,10 @@ impl Provider for MultiProvider {
                 .bedrock_provider()
                 .map(|o| o.uses_jcode_compaction())
                 .unwrap_or(false),
+            ActiveProvider::OmniRoute => self
+                .omniroute_provider()
+                .map(|o| o.uses_jcode_compaction())
+                .unwrap_or(false),
             ActiveProvider::OpenRouter => self
                 .active_openrouter_execution_provider()
                 .map(|o| o.supports_compaction())
@@ -2625,6 +2697,10 @@ impl Provider for MultiProvider {
                 .map(|o| o.uses_jcode_compaction())
                 .unwrap_or(false),
             ActiveProvider::Bedrock => false,
+            ActiveProvider::OmniRoute => self
+                .omniroute_provider()
+                .map(|o| o.uses_jcode_compaction())
+                .unwrap_or(false),
             ActiveProvider::OpenRouter => self
                 .active_openrouter_execution_provider()
                 .map(|o| o.uses_jcode_compaction())
@@ -2721,6 +2797,19 @@ impl Provider for MultiProvider {
             ActiveProvider::Bedrock => Err(anyhow::anyhow!(
                 "AWS Bedrock does not support native compaction"
             )),
+            ActiveProvider::OmniRoute => {
+                if let Some(omniroute) = self.omniroute_provider() {
+                    omniroute
+                        .native_compact(
+                            messages,
+                            existing_summary_text,
+                            existing_openai_encrypted_content,
+                        )
+                        .await
+                } else {
+                    Err(anyhow::anyhow!("OmniRoute provider unavailable"))
+                }
+            }
             ActiveProvider::OpenRouter => {
                 let provider = self.active_openrouter_execution_provider();
                 if let Some(openrouter) = provider {
@@ -2796,6 +2885,10 @@ impl Provider for MultiProvider {
                 .bedrock_provider()
                 .map(|o| o.context_window())
                 .unwrap_or(DEFAULT_CONTEXT_LIMIT),
+            ActiveProvider::OmniRoute => self
+                .omniroute_provider()
+                .map(|o| o.context_window())
+                .unwrap_or(DEFAULT_CONTEXT_LIMIT),
             ActiveProvider::OpenRouter => self
                 .active_openrouter_execution_provider()
                 .map(|o| o.context_window())
@@ -2853,6 +2946,7 @@ impl Provider for MultiProvider {
         } else {
             None
         };
+        let omniroute = self.omniroute_provider();
         let openrouter = if self
             .openrouter
             .read()
@@ -2873,6 +2967,7 @@ impl Provider for MultiProvider {
             gemini: RwLock::new(gemini_provider),
             cursor: RwLock::new(cursor_provider),
             bedrock: RwLock::new(bedrock_provider),
+            omniroute: RwLock::new(omniroute),
             openrouter: RwLock::new(openrouter),
             openai_compatible_profiles: RwLock::new(HashMap::new()),
             active_openai_compatible_profile: RwLock::new(None),
@@ -2934,6 +3029,7 @@ impl Provider for MultiProvider {
             ActiveProvider::Gemini => None,
             ActiveProvider::Cursor => None,
             ActiveProvider::Bedrock => None,
+            ActiveProvider::OmniRoute => None,
             ActiveProvider::OpenRouter => None,
         }
     }

@@ -65,6 +65,13 @@ impl MultiProvider {
         ProviderRegistry::new(self).active_openrouter_execution()
     }
 
+    pub(super) fn omniroute_provider(&self) -> Option<Arc<dyn Provider>> {
+        self.omniroute
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
     pub(super) fn clear_active_openai_compatible_profile(&self) {
         ProviderRegistry::new(self).clear_active_compatible_profile();
     }
@@ -82,6 +89,7 @@ impl MultiProvider {
             ActiveProvider::Gemini => self.gemini_provider().is_some(),
             ActiveProvider::Cursor => self.cursor_provider().is_some(),
             ActiveProvider::Bedrock => self.bedrock_provider().is_some(),
+            ActiveProvider::OmniRoute => self.omniroute_provider().is_some(),
             // The OpenRouter slot executes through the *active* runtime: a
             // direct OpenAI-compatible profile when one is active, else real
             // OpenRouter. Checking only the real slot here made dispatch treat

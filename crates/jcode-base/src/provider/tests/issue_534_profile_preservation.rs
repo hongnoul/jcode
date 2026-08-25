@@ -53,6 +53,7 @@ input = ["text"]
             gemini: RwLock::new(None),
             cursor: RwLock::new(None),
             bedrock: RwLock::new(None),
+            omniroute: RwLock::new(None),
             openrouter: RwLock::new(None),
             openai_compatible_profiles: RwLock::new(std::collections::HashMap::new()),
             active_openai_compatible_profile: RwLock::new(None),

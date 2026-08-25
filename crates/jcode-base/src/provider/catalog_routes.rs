@@ -235,6 +235,7 @@ pub(super) fn multiprovider_model_routes(provider: &MultiProvider) -> Vec<ModelR
     append_antigravity_routes(provider, &mut routes);
     append_cursor_routes(provider, &mut routes);
     append_bedrock_routes(provider, &mut routes);
+    append_omniroute_routes(provider, &mut routes);
 
     let has_openrouter_transport = provider.openrouter_provider().is_some();
     let has_openrouter_provider_features = provider
@@ -456,6 +457,10 @@ fn append_openai_compatible_profile_routes(
         .iter()
         .copied()
     {
+        // OmniRoute is now first-class via append_omniroute_routes
+        if profile.id == "omniroute" {
+            continue;
+        }
         if !crate::provider_catalog::openai_compatible_profile_is_configured(profile) {
             continue;
         }
@@ -606,6 +611,51 @@ fn append_cursor_routes(provider: &MultiProvider, routes: &mut Vec<ModelRoute>) 
 
 /// AWS Bedrock models and inference profiles, including the
 /// credentials-configured-but-uninitialized case.
+fn append_omniroute_routes(provider: &MultiProvider, routes: &mut Vec<ModelRoute>) {
+    if let Some(omniroute) = provider.omniroute_provider() {
+        // First-class OmniRoute: uses dedicated omniroute: prefix and api_method,
+        // but underlying runtime is still the openai-compatible profile runtime.
+        // Rewrite routes to advertise as OmniRoute with omniroute: prefix instead of
+        // openai-compatible:omniroute so picker/explicit prefix routing uses the
+        // first-class provider.
+        for mut route in omniroute.model_routes() {
+            // Normalize to first-class OmniRoute identity
+            route.provider = "OmniRoute".to_string();
+            route.api_method = "omniroute".to_string();
+            // Keep detail (api_base or fallback note) as is
+            if !routes.iter().any(|existing| existing.model == route.model && existing.api_method == route.api_method) {
+                routes.push(route);
+            }
+        }
+        // If no live models yet, show placeholder as unavailable
+        if routes.iter().filter(|r| r.api_method == "omniroute").count() == 0 {
+            // Check if the profile is configured (always true for local gateway) or if we should show unavailable
+            // For local gateway with no live catalog, show a single placeholder
+            routes.push(ModelRoute {
+                model: "auto".to_string(),
+                provider: "OmniRoute".to_string(),
+                api_method: "omniroute".to_string(),
+                available: true,
+                detail: "http://localhost:20128/v1 · auto → 353 providers".to_string(),
+                cheapness: None,
+            });
+        }
+    } else {
+        // OmniRoute not initialized (runtime not registered) - show as unavailable placeholder
+        // Only if not already present
+        if !routes.iter().any(|r| r.api_method == "omniroute") {
+            routes.push(ModelRoute {
+                model: "auto".to_string(),
+                provider: "OmniRoute".to_string(),
+                api_method: "omniroute".to_string(),
+                available: false,
+                detail: "OmniRoute gateway not running on localhost:20128".to_string(),
+                cheapness: None,
+            });
+        }
+    }
+}
+
 fn append_bedrock_routes(provider: &MultiProvider, routes: &mut Vec<ModelRoute>) {
     if let Some(bedrock) = provider.bedrock_provider() {
         routes.extend(bedrock.model_routes());
@@ -1159,6 +1209,10 @@ pub fn remote_openai_compatible_route_for_model(model: &str) -> Option<ModelRout
         .iter()
         .copied()
     {
+        // OmniRoute is now first-class via append_omniroute_routes
+        if profile.id == "omniroute" {
+            continue;
+        }
         if !crate::provider_catalog::openai_compatible_profile_is_configured(profile) {
             continue;
         }
