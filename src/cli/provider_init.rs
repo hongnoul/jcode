@@ -40,6 +40,8 @@ pub enum ProviderChoice {
     )]
     OpenaiApi,
     Openrouter,
+    #[value(alias = "omni-route", alias = "omni")]
+    Omniroute,
     #[value(alias = "aws-bedrock", alias = "aws_bedrock")]
     Bedrock,
     #[value(alias = "azure-openai", alias = "aoai")]
@@ -111,6 +113,13 @@ pub enum ProviderChoice {
     MetaMuse,
     #[value(alias = "celeris-ai", alias = "celeris1", alias = "celeris-1")]
     Celeris,
+    #[value(
+        alias = "one-triangle",
+        alias = "1triangle",
+        alias = "onetriangle-ai",
+        alias = "triangle"
+    )]
+    Onetriangle,
     #[value(alias = "lm-studio")]
     Lmstudio,
     Ollama,
@@ -154,6 +163,7 @@ impl ProviderChoice {
             Self::Openai => "openai",
             Self::OpenaiApi => "openai-api",
             Self::Openrouter => "openrouter",
+            Self::Omniroute => "omniroute",
             Self::Bedrock => "bedrock",
             Self::Azure => "azure",
             Self::Opencode => "opencode",
@@ -187,6 +197,7 @@ impl ProviderChoice {
             Self::Muse => "muse",
             Self::MetaMuse => "meta-muse",
             Self::Celeris => "celeris",
+            Self::Onetriangle => "onetriangle",
             Self::Lmstudio => "lmstudio",
             Self::Ollama => "ollama",
             Self::Chutes => "chutes",
@@ -234,6 +245,10 @@ const PROVIDER_CHOICE_LOGIN_PROVIDERS: &[(ProviderChoice, LoginProviderDescripto
     (
         ProviderChoice::Openrouter,
         crate::provider_catalog::OPENROUTER_LOGIN_PROVIDER,
+    ),
+    (
+        ProviderChoice::Omniroute,
+        crate::provider_catalog::OMNIROUTE_LOGIN_PROVIDER,
     ),
     (
         ProviderChoice::Bedrock,
@@ -366,6 +381,10 @@ const PROVIDER_CHOICE_LOGIN_PROVIDERS: &[(ProviderChoice, LoginProviderDescripto
     (
         ProviderChoice::Celeris,
         crate::provider_catalog::CELERIS_LOGIN_PROVIDER,
+    ),
+    (
+        ProviderChoice::Onetriangle,
+        crate::provider_catalog::ONETRIANGLE_LOGIN_PROVIDER,
     ),
     (
         ProviderChoice::Lmstudio,
@@ -1619,8 +1638,10 @@ async fn init_provider_with_options(
         | ProviderChoice::XiaomiMimo
         | ProviderChoice::MetaMuse
         | ProviderChoice::Celeris
+        | ProviderChoice::Onetriangle
         | ProviderChoice::Lmstudio
         | ProviderChoice::Ollama
+        | ProviderChoice::Omniroute
         | ProviderChoice::Chutes
         | ProviderChoice::Cerebras
         | ProviderChoice::Belvedir
