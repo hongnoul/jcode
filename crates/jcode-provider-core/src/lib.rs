@@ -599,6 +599,79 @@ pub async fn http_error_body(response: reqwest::Response, context: &str) -> Stri
     }
 }
 
+/// Whether reqwest's automatic system-proxy detection is safe to run.
+///
+/// On macOS, `reqwest` asks SystemConfiguration for the machine's proxy
+/// settings while building a client. When no SystemConfiguration store is
+/// available (`scutil --dns` reports "No DNS configuration available"), which
+/// happens in sandboxes, some CI runners, and daemons started outside a normal
+/// login session, `SCDynamicStore::create` returns NULL and the
+/// `system-configuration` crate panics with "Attempted to create a NULL
+/// object". That panic escapes through `ClientBuilder::build`, so every jcode
+/// command that touches the network aborts before it can send a request.
+///
+/// Probe the behavior once, with the panic hook silenced, and cache the answer.
+/// When the probe panics we build clients with `.no_proxy()`, which skips the
+/// SystemConfiguration lookup entirely. Proxy env vars (`HTTPS_PROXY` etc.) are
+/// re-applied explicitly so users behind a proxy keep working.
+fn system_proxy_detection_is_safe() -> bool {
+    use std::sync::OnceLock;
+    static SAFE: OnceLock<bool> = OnceLock::new();
+    *SAFE.get_or_init(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = std::panic::catch_unwind(|| {
+            let _ = reqwest::Proxy::custom(|_| None::<reqwest::Url>);
+            reqwest::Client::builder().build().is_ok()
+        });
+        std::panic::set_hook(previous);
+
+        match result {
+            Ok(ok) => ok,
+            Err(_) => {
+                eprintln!(
+                    "jcode: system proxy detection is unavailable (no SystemConfiguration store); \
+                     continuing without it. Set HTTPS_PROXY/HTTP_PROXY if you need a proxy."
+                );
+                false
+            }
+        }
+    })
+}
+
+/// Apply proxy configuration that cannot panic on a machine without a
+/// SystemConfiguration store. Returns the builder unchanged when automatic
+/// detection is safe.
+pub fn with_safe_proxy_detection(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    if system_proxy_detection_is_safe() {
+        return builder;
+    }
+
+    let mut builder = builder.no_proxy();
+    // `.no_proxy()` also discards the env-var proxies reqwest would normally
+    // honor, so re-add them by hand.
+    for (var, is_https) in [
+        ("HTTPS_PROXY", true),
+        ("https_proxy", true),
+        ("HTTP_PROXY", false),
+        ("http_proxy", false),
+    ] {
+        let Ok(url) = std::env::var(var) else { continue };
+        if url.trim().is_empty() {
+            continue;
+        }
+        let proxy = if is_https {
+            reqwest::Proxy::https(url.trim())
+        } else {
+            reqwest::Proxy::http(url.trim())
+        };
+        if let Ok(proxy) = proxy {
+            builder = builder.proxy(proxy);
+        }
+    }
+    builder
+}
+
 /// Shared HTTP client for all generic provider requests. Creating a `reqwest::Client` is expensive
 /// (~10ms due to TLS init, connection pool setup), so we reuse a single instance. Provider-specific
 /// transports may override the User-Agent on individual requests when they intentionally need to
@@ -608,7 +681,7 @@ pub fn shared_http_client() -> reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
-            reqwest::Client::builder()
+            with_safe_proxy_detection(reqwest::Client::builder())
                 .user_agent(JCODE_USER_AGENT)
                 .connect_timeout(Duration::from_secs(15))
                 .tcp_keepalive(Some(Duration::from_secs(30)))
@@ -625,7 +698,7 @@ pub fn shared_http_client() -> reqwest::Client {
                 .build()
                 .unwrap_or_else(|err| {
                     eprintln!("jcode: failed to build shared provider HTTP client: {err}");
-                    match reqwest::Client::builder()
+                    match with_safe_proxy_detection(reqwest::Client::builder())
                         .user_agent(JCODE_USER_AGENT)
                         .build()
                     {
@@ -652,7 +725,7 @@ pub fn shared_http_client() -> reqwest::Client {
 /// that makes transport-fault retries actually succeed). Building a client
 /// costs ~10ms, which is fine on a retry path that already backs off >=1s.
 pub fn fresh_transport_client() -> reqwest::Client {
-    reqwest::Client::builder()
+    with_safe_proxy_detection(reqwest::Client::builder())
         .user_agent(JCODE_USER_AGENT)
         .connect_timeout(Duration::from_secs(15))
         .tcp_keepalive(Some(Duration::from_secs(30)))
