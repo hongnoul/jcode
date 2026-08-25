@@ -550,6 +550,30 @@ mod tests {
     }
 
     #[test]
+    fn onetriangle_profile_uses_official_openai_compatible_configuration() {
+        assert_eq!(ONETRIANGLE_PROFILE.id, "onetriangle");
+        assert_eq!(ONETRIANGLE_PROFILE.display_name, "OneTriangle");
+        assert_eq!(ONETRIANGLE_PROFILE.api_base, "https://onetriangle.ai/v1");
+        assert_eq!(ONETRIANGLE_PROFILE.api_key_env, "ONETRIANGLE_API_KEY");
+        assert_eq!(ONETRIANGLE_PROFILE.env_file, "onetriangle.env");
+        assert_eq!(ONETRIANGLE_PROFILE.default_model, Some("deepseek-v4-flash"));
+        const { assert!(ONETRIANGLE_PROFILE.requires_api_key) };
+        assert_eq!(
+            ONETRIANGLE_LOGIN_PROVIDER.auth_kind,
+            LoginProviderAuthKind::ApiKey
+        );
+        assert_eq!(
+            ONETRIANGLE_LOGIN_PROVIDER.auth_state_key,
+            LoginProviderAuthStateKey::OpenRouterLike
+        );
+        assert!(matches!(
+            ONETRIANGLE_LOGIN_PROVIDER.target,
+            LoginProviderTarget::OpenAiCompatible(profile) if profile.id == "onetriangle"
+        ));
+        assert!(ONETRIANGLE_LOGIN_PROVIDER.aliases.contains(&"1triangle"));
+    }
+
+    #[test]
     fn ollama_profile_is_local_openai_compatible_without_required_api_key() {
         assert_eq!(OLLAMA_PROFILE.id, "ollama");
         assert_eq!(OLLAMA_PROFILE.api_base, "http://localhost:11434/v1");
