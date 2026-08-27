@@ -141,6 +141,11 @@ pin_images = true
 # Set to false for horizontal scrolling instead of wrapping
 diff_line_wrap = true
 
+# Start sessions with typing scroll lock enabled, so the transcript stays put
+# while you type instead of auto-following new output (default: false).
+# Toggle at runtime with the typing_scroll_lock_toggle binding (alt+s).
+# typing_scroll_lock = false
+
 # Queue mode: wait until assistant is done before sending next message
 queue_mode = false
 

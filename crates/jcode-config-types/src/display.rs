@@ -126,6 +126,11 @@ pub struct DisplayConfig {
     /// reveal when scrolling past the bottom, "on" keeps it always visible.
     #[serde(default, deserialize_with = "crate::serde_lenient::lenient_enum")]
     pub overscroll_status: OverscrollStatusMode,
+    /// Start sessions with typing scroll lock enabled, so the transcript stays
+    /// put while you type instead of auto-following new output (default:
+    /// false). Toggle at runtime with the `typing_scroll_lock_toggle` binding.
+    #[serde(default)]
+    pub typing_scroll_lock: bool,
 }
 impl Default for DisplayConfig {
     fn default() -> Self {
@@ -166,6 +171,7 @@ impl Default for DisplayConfig {
             external_sessions: true,
             usage_display: "left".to_string(),
             overscroll_status: OverscrollStatusMode::default(),
+            typing_scroll_lock: false,
         }
     }
 }
@@ -251,5 +257,28 @@ mod tests {
         let used: DisplayConfig =
             serde_json::from_str(r#"{"usage_display":"used"}"#).expect("display config");
         assert!(used.usage_display_used());
+    }
+}
+
+#[cfg(test)]
+mod typing_scroll_lock_tests {
+    use super::*;
+
+    #[test]
+    fn defaults_to_false() {
+        assert!(!DisplayConfig::default().typing_scroll_lock);
+    }
+
+    #[test]
+    fn missing_key_defaults_false() {
+        let missing: DisplayConfig = serde_json::from_str("{}").expect("display config");
+        assert!(!missing.typing_scroll_lock);
+    }
+
+    #[test]
+    fn can_be_enabled() {
+        let on: DisplayConfig =
+            serde_json::from_str(r#"{"typing_scroll_lock":true}"#).expect("display config");
+        assert!(on.typing_scroll_lock);
     }
 }

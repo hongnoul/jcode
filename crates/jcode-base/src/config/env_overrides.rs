@@ -184,6 +184,11 @@ impl Config {
         {
             self.display.pin_todos = parsed;
         }
+        if let Ok(v) = std::env::var("JCODE_TYPING_SCROLL_LOCK")
+            && let Some(parsed) = parse_env_bool(&v)
+        {
+            self.display.typing_scroll_lock = parsed;
+        }
         if let Ok(v) = std::env::var("JCODE_DISPLAY_CENTERED") {
             if let Some(parsed) = parse_env_bool(&v) {
                 self.display.centered = parsed;
