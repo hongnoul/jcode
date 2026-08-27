@@ -1,14 +1,16 @@
 use super::*;
 
-/// Border width for mermaid diagrams (left bar + space)
-pub(super) const BORDER_WIDTH: u16 = 2;
+/// Border width for mermaid diagrams (removed: images fill the full pane).
+pub(super) const BORDER_WIDTH: u16 = 0;
 
+#[allow(dead_code)]
 fn rect_contains_point(rect: Rect, x: u16, y: u16) -> bool {
     let right = rect.x.saturating_add(rect.width);
     let bottom = rect.y.saturating_add(rect.height);
     x >= rect.x && x < right && y >= rect.y && y < bottom
 }
 
+#[allow(dead_code)]
 pub(super) fn set_cell_if_visible(
     buf: &mut Buffer,
     x: u16,
@@ -28,19 +30,8 @@ pub(super) fn set_cell_if_visible(
 }
 
 pub(super) fn draw_left_border(buf: &mut Buffer, area: Rect) {
-    let clamped = area.intersection(*buf.area());
-    if clamped.width == 0 || clamped.height == 0 {
-        return;
-    }
-    let border_style = Style::default().fg(rgb(100, 100, 100)); // DIM_COLOR
-    let y_end = clamped.y.saturating_add(clamped.height);
-    for row in clamped.y..y_end {
-        set_cell_if_visible(buf, clamped.x, row, '│', Some(border_style));
-        if clamped.width > 1 {
-            let spacer_x = clamped.x.saturating_add(1);
-            set_cell_if_visible(buf, spacer_x, row, ' ', None);
-        }
-    }
+    // Border removed: images fill the full pane width.
+    let _ = (buf, area);
 }
 
 pub(super) fn render_stateful_image_safe(

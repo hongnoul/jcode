@@ -1,4 +1,3 @@
-use super::widget_render::set_cell_if_visible;
 use super::*;
 
 fn load_source_image(hash: u64, path: &Path) -> Option<Arc<DynamicImage>> {
@@ -40,7 +39,10 @@ fn fitted_source_key(
 }
 
 /// A fitted source is draw-ready when either its scaled variant is cached or
-/// the decoded original already fits the target and therefore needs no resize.
+/// the decoded original already matches the fill-width target (preserving aspect
+/// and capped by rows). Small images are upscaled to fill the pane width, so
+/// "fits within" is not sufficient - dimensions must equal the expected scaled
+/// size.
 fn fitted_source_is_ready(
     hash: u64,
     source_path: &Path,
@@ -55,16 +57,29 @@ fn fitted_source_is_ready(
         return true;
     }
 
-    let max_w_px = (target_cols as u32).saturating_mul(font_size.0.max(1) as u32);
-    let max_h_px = (target_rows as u32).saturating_mul(font_size.1.max(1) as u32);
+    // Compute the exact fill-width scaled dimensions for this target.
+    let avail_w_px = (target_cols as u32).saturating_mul(font_size.0.max(1) as u32);
+    let cap_h_px = (target_rows as u32).saturating_mul(font_size.1.max(1) as u32);
+    if avail_w_px == 0 || cap_h_px == 0 {
+        return false;
+    }
     SOURCE_CACHE
         .lock()
         .ok()
         .and_then(|cache| {
             cache.entries.get(&hash).map(|entry| {
-                entry.path == source_path
-                    && entry.image.width() <= max_w_px
-                    && entry.image.height() <= max_h_px
+                if entry.path != source_path {
+                    return false;
+                }
+                let (src_w, src_h) = (entry.image.width().max(1), entry.image.height().max(1));
+                let scaled_h_by_w = (src_h as u64).saturating_mul(avail_w_px as u64) / src_w as u64;
+                let (final_w, final_h) = if scaled_h_by_w <= cap_h_px as u64 {
+                    (avail_w_px, scaled_h_by_w as u32)
+                } else {
+                    let w = (src_w as u64).saturating_mul(cap_h_px as u64) / src_h as u64;
+                    (w.max(1).min(avail_w_px as u64) as u32, cap_h_px)
+                };
+                entry.image.width() == final_w && entry.image.height() == final_h
             })
         })
         .unwrap_or(false)
@@ -407,23 +422,41 @@ pub(super) fn ensure_kitty_fit_state(
 }
 
 /// Scale a source image once to fit a `(cols, rows)` cell box at `font_size`,
-/// preserving aspect ratio. Returns a clone when the source already fits.
+/// preserving aspect ratio. Always fills the pane width (upscales small images)
+/// then clamps to the row cap, mirroring `inline_fit_geometry`. Expanded
+/// placeholders deliberately exceed the native PNG size, so reuse only when
+/// the source already occupies the exact target cell geometry.
 fn scale_to_fit_box<'a>(
     source: &'a DynamicImage,
     target_cols: u16,
     target_rows: u16,
     font_size: (u16, u16),
 ) -> Cow<'a, DynamicImage> {
-    let max_w_px = (target_cols as u32).saturating_mul(font_size.0.max(1) as u32);
-    let max_h_px = (target_rows as u32).saturating_mul(font_size.1.max(1) as u32);
-    // Reuse only when the source already occupies exactly the requested cell
-    // geometry. Expanded Mermaid placeholders deliberately exceed the native
-    // PNG size; treating "smaller than the box" as already fitted left the
-    // native image at the top with blank placeholder rows underneath.
+    let avail_w_px = (target_cols as u32).saturating_mul(font_size.0.max(1) as u32);
+    let cap_h_px = (target_rows as u32).saturating_mul(font_size.1.max(1) as u32);
+    if avail_w_px == 0 || cap_h_px == 0 {
+        return Cow::Borrowed(source);
+    }
+    // Fast path: reuse when already the exact target geometry (covers expanded placeholders).
     if cell_rect_for_image(source, font_size) == (target_cols, target_rows) {
+        return Cow::Borrowed(source);
+    }
+    let (src_w, src_h) = (source.width().max(1), source.height().max(1));
+    let scaled_h_by_w = (src_h as u64).saturating_mul(avail_w_px as u64) / src_w as u64;
+    let (final_w_px, final_h_px) = if scaled_h_by_w <= cap_h_px as u64 {
+        (avail_w_px, scaled_h_by_w as u32)
+    } else {
+        let w = (src_w as u64).saturating_mul(cap_h_px as u64) / src_h as u64;
+        (w.max(1).min(avail_w_px as u64) as u32, cap_h_px)
+    };
+    if source.width() == final_w_px && source.height() == final_h_px {
         Cow::Borrowed(source)
     } else {
-        Cow::Owned(source.resize(max_w_px, max_h_px, image::imageops::FilterType::Triangle))
+        Cow::Owned(source.resize_exact(
+            final_w_px.max(1),
+            final_h_px.max(1),
+            image::imageops::FilterType::Triangle,
+        ))
     }
 }
 
@@ -976,31 +1009,9 @@ pub fn prewarm_inline_fit_state(
     prepared
 }
 
-/// Draw a rounded left border that hugs the image's real extent: `╭` on the
-/// image's first row, `╰` on its last, `│` between. Rows of the placeholder
-/// below the image (when the estimate was taller than the fitted image) get no
-/// border at all, so the line never extends past the picture.
 fn draw_fitted_left_border(buf: &mut Buffer, area: Rect, skip_rows: u16, full_rows: u16) {
-    let clamped = area.intersection(*buf.area());
-    if clamped.width == 0 || clamped.height == 0 || full_rows == 0 {
-        return;
-    }
-    let visible = clamped.height.min(full_rows.saturating_sub(skip_rows));
-    let border_style = Style::default().fg(rgb(100, 100, 100)); // DIM_COLOR
-    for row in 0..visible {
-        let global_row = skip_rows.saturating_add(row);
-        let ch = match (global_row == 0, global_row + 1 >= full_rows) {
-            (true, true) => '╶',
-            (true, false) => '╭',
-            (false, true) => '╰',
-            (false, false) => '│',
-        };
-        let y = clamped.y + row;
-        set_cell_if_visible(buf, clamped.x, y, ch, Some(border_style));
-        if clamped.width > 1 {
-            set_cell_if_visible(buf, clamped.x.saturating_add(1), y, ' ', None);
-        }
-    }
+    // Border removed: images fill the full pane width.
+    let _ = (buf, area, skip_rows, full_rows);
 }
 
 /// Convert a row scroll over a fitted image into an exact source-pixel crop and
