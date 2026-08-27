@@ -834,9 +834,9 @@ pub(crate) fn resolve_anchored_items_cached(
 }
 
 /// Compute how many `(rows, cols)` an inline image occupies at `chat_width`,
-/// capped at `cap_rows`. `cols` includes the 2-cell left border, matching what
-/// the draw step actually paints, so layout (e.g. info widget placement) can
-/// know the real horizontal extent.
+/// capped at `cap_rows`. `cols` equals the usable image width in the pane
+/// (no left border - images fill the full PTY pane width), so layout e.g.
+/// info-widget placement sees the real horizontal extent.
 fn fit_geometry_with_cap(width: u32, height: u32, chat_width: u16, cap_rows: u16) -> (u16, u16) {
     // Single source of truth for inline-fit placeholder geometry, shared with
     // the mermaid crate so diagrams and raster images stay in lockstep with
