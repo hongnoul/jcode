@@ -241,7 +241,7 @@ fn inline_fit_geometry_impl(
 }
 
 /// Convert render result to lines. Diagrams emit the same inline-fit
-/// placeholder raster images use, so they share the fit/border/stable-scroll
+/// placeholder raster images use, so they share the fit/stable-scroll
 /// draw pipeline. Video export keeps the legacy crop marker, whose draw path
 /// writes the printable region markers the SVG exporter scans for.
 pub fn result_to_lines(result: RenderResult, max_width: Option<usize>) -> Vec<Line<'static>> {

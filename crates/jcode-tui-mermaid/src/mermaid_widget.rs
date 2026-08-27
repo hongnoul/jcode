@@ -68,7 +68,7 @@ pub(super) fn render_stateful_image_safe(
 /// - Skips render if area and settings unchanged from last frame
 /// - Uses Fit mode for small terminals to scale instead of crop
 /// - Only clears area if render fails
-/// - Draws a left border (like code blocks) for visual consistency
+/// - Images fill the full pane width (no left border)
 pub fn render_image_widget(
     hash: u64,
     area: Rect,
@@ -90,19 +90,11 @@ pub fn render_image_widget(
         return 0;
     }
 
-    // Skip if area is too small (need room for border + image)
-    if area.width <= BORDER_WIDTH {
-        return 0;
-    }
-
-    // Draw left border (vertical bar like code blocks)
-    draw_left_border(buf, area);
-
-    // Adjust area for image (after border)
+    // No border inset: image fills the full area width.
     let image_area = Rect {
-        x: area.x + BORDER_WIDTH,
+        x: area.x,
         y: area.y,
-        width: area.width - BORDER_WIDTH,
+        width: area.width,
         height: area.height,
     };
 
@@ -278,7 +270,8 @@ pub fn render_image_widget(
 }
 
 /// Render an image using Fit mode (scales to fit the available area).
-/// draw_border controls whether a left border is drawn like code blocks.
+/// `draw_border` is retained for API compatibility but is a no-op: images
+/// fill the full pane width with no left border.
 pub fn render_image_widget_fit(
     hash: u64,
     area: Rect,
@@ -317,19 +310,12 @@ fn render_image_widget_fit_inner(
         return 0;
     }
 
-    let border_width = if draw_border { BORDER_WIDTH } else { 0 };
-    if area.width <= border_width {
-        return 0;
-    }
-
-    if draw_border {
-        draw_left_border(buf, area);
-    }
-
+    // Border removed: images fill the full pane width regardless of draw_border.
+    let _ = draw_border;
     let image_area = Rect {
-        x: area.x + border_width,
+        x: area.x,
         y: area.y,
-        width: area.width - border_width,
+        width: area.width,
         height: area.height,
     };
 
