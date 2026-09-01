@@ -302,15 +302,18 @@ fn normalize_key(code: KeyCode, modifiers: KeyModifiers) -> (KeyCode, KeyModifie
     if code == KeyCode::BackTab {
         return (KeyCode::Tab, modifiers | KeyModifiers::SHIFT);
     }
-    // With the Kitty keyboard protocol, terminals report Ctrl+Shift+<letter>
-    // as an uppercase Char plus CONTROL|SHIFT. Since Shift is already explicit
-    // in the modifiers, fold the letter to lowercase so "ctrl+shift+e" matches
-    // both Char('e') and Char('E') encodings.
-    if modifiers.contains(KeyModifiers::SHIFT)
-        && let KeyCode::Char(c) = code
+    // With the Kitty keyboard protocol and REPORT_ALTERNATE_KEYS, terminals
+    // report Ctrl+Shift+<letter> as an uppercase Char. When the alternate-
+    // keys flag is on the terminal sends the shifted character as the base
+    // codepoint and clears the SHIFT flag (e.g. Ctrl+Shift+J arrives as
+    // Char('J') + CONTROL instead of Char('j') + CONTROL|SHIFT). Crossterm's
+    // KeyEvent::normalize_case handles this for direct KeyEvent equality, but
+    // KeyBinding::matches uses normalize_key, so we must canonicalize here
+    // as well: any uppercase Char implies SHIFT.
+    if let KeyCode::Char(c) = code
         && c.is_ascii_uppercase()
     {
-        return (KeyCode::Char(c.to_ascii_lowercase()), modifiers);
+        return (KeyCode::Char(c.to_ascii_lowercase()), modifiers | KeyModifiers::SHIFT);
     }
     // Legacy terminal input commonly reports Shift+; as the produced ':'
     // character and omits the SHIFT modifier. Normalize it to the physical key
@@ -385,13 +388,16 @@ impl ScrollKeys {
         // scroll up / down one line, where <mod> is Ctrl, Cmd, or Option. This is
         // the shifted counterpart of the prompt navigation on the un-shifted
         // chords (see `prompt_jump`): plain J/K move by prompt, holding Shift
-        // makes them scroll line-by-line. Terminals with the Kitty keyboard
-        // protocol report these as Char('k'/'j') (or shifted 'K'/'J') with the
-        // modifier set including SHIFT.
+        // makes them scroll line-by-line. With REPORT_ALTERNATE_KEYS the
+        // terminal reports the shifted character as the base codepoint and
+        // clears SHIFT (e.g. Ctrl+Shift+J -> Char('J') + CONTROL), so treat
+        // an uppercase letter as implying SHIFT.
+        let is_shifted = modifiers.contains(KeyModifiers::SHIFT)
+            || matches!(code, KeyCode::Char(c) if c.is_ascii_uppercase());
         let has_nav_mod = modifiers.intersects(
             KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META | KeyModifiers::ALT,
         );
-        if has_nav_mod && modifiers.contains(KeyModifiers::SHIFT) {
+        if has_nav_mod && is_shifted {
             match code {
                 KeyCode::Char('k') | KeyCode::Char('K') => return Some(-self.line_amount()),
                 KeyCode::Char('j') | KeyCode::Char('J') => return Some(self.line_amount()),
@@ -415,8 +421,13 @@ impl ScrollKeys {
         }
 
         // Shifted chords are reserved for incremental scrolling (see
-        // `scroll_amount`), so never treat them as prompt jumps.
-        if modifiers.contains(KeyModifiers::SHIFT) {
+        // `scroll_amount`), so never treat them as prompt jumps. With
+        // REPORT_ALTERNATE_KEYS the SHIFT flag is cleared and the shifted
+        // character arrives as uppercase (e.g. Ctrl+Shift+J -> Char('J') +
+        // CONTROL), so treat uppercase as implying SHIFT.
+        let is_shifted = modifiers.contains(KeyModifiers::SHIFT)
+            || matches!(code, KeyCode::Char(c) if c.is_ascii_uppercase());
+        if is_shifted {
             return None;
         }
 

@@ -277,8 +277,13 @@ fn result_to_lines_with_capabilities(
                 return image_placeholder_lines(width, height);
             }
             let chat_width = max_width.map(|w| w as u16).unwrap_or(80);
+            // Level 0 is the default inline size and should fill the canvas width
+            // rather than rendering as a tiny centered thumbnail. Use the upscaled
+            // path with a taller cap so typical aspect ratios are width-bound and
+            // occupy the full chat column; click-to-expand still grows to the
+            // generous max.
             let geometries = [
-                inline_fit_geometry(width, height, chat_width, 16),
+                inline_fit_geometry_upscaled(width, height, chat_width, 32),
                 inline_fit_geometry_upscaled(width, height, chat_width, INLINE_DIAGRAM_MAX_ROWS),
                 inline_fit_geometry_upscaled(width, height, chat_width, 200),
             ];
