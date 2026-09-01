@@ -595,12 +595,12 @@ mod macos {
                 let attributed = attributed_title(&title, &title_font, counts.streaming > 0);
                 button.setAttributedTitle(&attributed);
                 // Tint the template icon to match: accent green while any
-                // session is streaming, default (nil) otherwise so it follows
-                // the menu bar's normal appearance.
+                // session is streaming, forced white when idle so it is
+                // visible on dark menu bars.
                 let tint: Option<Retained<NSColor>> = if counts.streaming > 0 {
                     Some(streaming_color())
                 } else {
-                    None
+                    Some(NSColor::whiteColor())
                 };
                 button.setContentTintColor(tint.as_deref());
             }
@@ -660,13 +660,8 @@ mod macos {
     }
 
     /// Build the colored menu bar title. While streaming, the count is drawn in
-    /// the streaming color; when idle it uses the primary dynamic label color so
-    /// it keeps full contrast against whatever the menu bar background is. (The
-    /// previous secondary/"quiet" gray was nearly invisible on a black/dark menu
-    /// bar.) `labelColor` is a dynamic system color, so AppKit resolves it at
-    /// draw time using the status item button's effective appearance - white-ish
-    /// on a dark menu bar, dark on a light one. The monospaced-digit font is
-    /// applied so the width stays stable.
+    /// the streaming color; when idle it is forced white to stay visible on
+    /// the (dark) menu bar. The monospaced-digit font keeps the width stable.
     fn attributed_title(
         title: &str,
         font: &NSFont,
@@ -676,7 +671,7 @@ mod macos {
         let color = if streaming {
             streaming_color()
         } else {
-            NSColor::labelColor()
+            NSColor::whiteColor()
         };
         let keys: [&NSString; 2] = [unsafe { NSForegroundColorAttributeName }, unsafe {
             NSFontAttributeName
