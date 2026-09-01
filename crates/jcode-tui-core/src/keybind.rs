@@ -924,35 +924,50 @@ mod tests {
     #[test]
     fn test_prompt_jump_cmd_jk() {
         // Cmd+K / Cmd+J move up / down by prompt on macOS (and any terminal that
-        // forwards Command as SUPER/META).
+        // forwards Command as SUPER/META). Uppercase (shifted) is reserved for
+        // incremental scroll, so it must not be treated as a prompt jump.
         let keys = test_scroll_keys();
         for mods in [KeyModifiers::SUPER, KeyModifiers::META] {
             assert_eq!(keys.prompt_jump(KeyCode::Char('k'), mods), Some(-1));
-            assert_eq!(keys.prompt_jump(KeyCode::Char('K'), mods), Some(-1));
             assert_eq!(keys.prompt_jump(KeyCode::Char('j'), mods), Some(1));
-            assert_eq!(keys.prompt_jump(KeyCode::Char('J'), mods), Some(1));
+            assert_eq!(keys.prompt_jump(KeyCode::Char('K'), mods), None);
+            assert_eq!(keys.prompt_jump(KeyCode::Char('J'), mods), None);
+            // Uppercase with the Kitty alternate-keys encoding arrives without an
+            // explicit SHIFT flag (Char('K') + SUPER). That must still be
+            // recognized as a shifted scroll, not a prompt jump.
+            assert_eq!(
+                keys.scroll_amount(KeyCode::Char('K'), mods),
+                Some(-keys.line_amount())
+            );
+            assert_eq!(
+                keys.scroll_amount(KeyCode::Char('J'), mods),
+                Some(keys.line_amount())
+            );
         }
     }
 
     #[test]
     fn test_prompt_jump_option_jk() {
         // Option (Alt) + K / J mirror Cmd+K / Cmd+J for prompt navigation on macOS.
+        // Uppercase is the shifted (scroll) chord.
         let keys = test_scroll_keys();
         assert_eq!(
             keys.prompt_jump(KeyCode::Char('k'), KeyModifiers::ALT),
             Some(-1)
         );
         assert_eq!(
-            keys.prompt_jump(KeyCode::Char('K'), KeyModifiers::ALT),
-            Some(-1)
-        );
-        assert_eq!(
             keys.prompt_jump(KeyCode::Char('j'), KeyModifiers::ALT),
             Some(1)
         );
+        assert_eq!(keys.prompt_jump(KeyCode::Char('K'), KeyModifiers::ALT), None);
+        assert_eq!(keys.prompt_jump(KeyCode::Char('J'), KeyModifiers::ALT), None);
         assert_eq!(
-            keys.prompt_jump(KeyCode::Char('J'), KeyModifiers::ALT),
-            Some(1)
+            keys.scroll_amount(KeyCode::Char('K'), KeyModifiers::ALT),
+            Some(-keys.line_amount())
+        );
+        assert_eq!(
+            keys.scroll_amount(KeyCode::Char('J'), KeyModifiers::ALT),
+            Some(keys.line_amount())
         );
     }
 
